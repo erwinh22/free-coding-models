@@ -59,8 +59,9 @@ const BANNER = chalk.greenBright(`
 async function promptApiKey() {
   console.log(BANNER)
   console.log()
-  console.log(chalk.dim('  First time? Let\'s set up your NVIDIA API key.'))
-  console.log(chalk.dim('  Get a free key at: ') + chalk.cyanBright('https://build.nvidia.com'))
+  console.log(chalk.dim('  🔑 Setup your NVIDIA API key'))
+  console.log(chalk.dim('  📝 Get a free key at: ') + chalk.cyanBright('https://build.nvidia.com'))
+  console.log(chalk.dim('  💾 Key will be saved to ~/.nim-check'))
   console.log()
 
   const rl = readline.createInterface({
@@ -75,7 +76,7 @@ async function promptApiKey() {
       if (key) {
         saveApiKey(key)
         console.log()
-        console.log(chalk.green('  ✓ API key saved to ~/.nim-check'))
+        console.log(chalk.green('  ✅ API key saved to ~/.nim-check'))
         console.log()
       }
       resolve(key || null)
@@ -220,7 +221,7 @@ function renderTable(results, pendingPings, frame) {
     '',
     // 📖 Header row — same spacing as data rows, dim text
     `  ${chalk.dim(col('#', 3))}  ${chalk.dim('Tier'.padEnd(4))}  ${chalk.dim('Model'.padEnd(W))}  ` +
-      [1,2,3,4].map(n => chalk.dim(`P${n}(ms)`.padStart(CELL_W))).join('  ') +
+      [1,2,3,4].map(n => chalk.dim(`PING${n}`.padStart(CELL_W))).join('  ') +
       `  ${chalk.dim('Avg'.padStart(CELL_W))}  ${chalk.dim('Status')}`,
     // 📖 Thin underline under header using dim dashes
     `  ${chalk.dim('─'.repeat(3))}  ${'─'.repeat(4)}  ${'─'.repeat(W)}  ` +

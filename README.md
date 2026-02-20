@@ -58,22 +58,16 @@ bunx nim-check YOUR_API_KEY
 ## 🚀 Usage
 
 ```bash
-# Just run it — first time will prompt for API key
+# Just run it — will prompt for API key if not set
 nim-check
 ```
 
-On first run, you'll see a setup wizard:
+Setup wizard:
 
 ```
-███    ██ ██ ███    ███      ██████ ██   ██ ███████  ██████ ██   ██
-████   ██ ██ ████  ████     ██      ███████ █████   ██      █████  
-██ ██  ██ ██ ██  ████ ██     ██      ██   ██ ██      ██      ██  ██ 
-██  ██ ██ ██ ██   ██  ██     ██      ██   ██ ██      ██      ██   ██
-██   ████ ██ ██      ██      ██████ ██   ██ ███████  ██████ ██   ██
-        by vava · github.com/vavanesssa
-
-  First time? Let's set up your NVIDIA API key.
-  Get a free key at: https://build.nvidia.com
+  🔑 Setup your NVIDIA API key
+  📝 Get a free key at: https://build.nvidia.com
+  💾 Key will be saved to ~/.nim-check
 
   Enter your API key: nvapi-xxxx-xxxx
 
@@ -96,33 +90,14 @@ nim-check
 
 ### Get your free API key
 
-1. Go to [build.nvidia.com](https://build.nvidia.com)
-2. Sign in / Sign up
-3. Click **"Get API Key"**
-4. Copy and use with `nim-check`
+1. **Create NVIDIA Account** — Sign up at [build.nvidia.com](https://build.nvidia.com) with your email
+2. **Verify** — Confirm email, set privacy options, create NGC account, verify phone
+3. **Generate Key** — Go to Profile → API Keys → Generate API Key
+4. **Name it** — e.g., "nim-check" or "OpenCode-NIM"
+5. **Set expiration** — Choose "Never" for convenience
+6. **Copy securely** — Key is shown only once!
 
----
-
-## 📊 Output Example
-
-```
-███    ██ ██ ███    ███      ██████ ██   ██ ███████  ██████ ██   ██
-████   ██ ██ ████  ████     ██      ███████ █████   ██      █████  
-██ ██  ██ ██ ██  ████ ██     ██      ██   ██ ██      ██      ██  ██ 
-██  ██ ██ ██ ██   ██  ██     ██      ██   ██ ██      ██      ██   ██
-██   ████ ██ ██      ██      ██████ ██   ██ ███████  ██████ ██   ██
-        by vava · github.com/vavanesssa
-
-  ⚡ NIM Model Availability   ✅ 38 up  ⏱ 2 t/o  ❌ 4 down  complete ✓
-
-   #  Tier  Model                   Avg Ping  Status
-  ───  ────  ─────────────────────  ─────────  ───────────
-   1  S     🥇 Kimi K2.5                 299  ✅ UP     
-   2  S     🥈 GLM 5                     409  ✅ UP     
-   3  S     🥉 Qwen3 Coder 480B          523  ✅ UP     
-   4  S         DeepSeek V3.2            609  ✅ UP     
-  ...
-```
+> 💡 **Free credits** — NVIDIA offers free credits for NIM models via their API Catalog for developers.
 
 ---
 
@@ -143,6 +118,63 @@ nim-check
 - **A-tier:** Strong alternatives, often faster or specialized
 - **B-tier:** Solid performers, good for specific tasks
 - **C-tier:** Smaller models, edge-friendly, or older generations
+
+---
+
+## 🔌 Use with OpenCode
+
+Want to use NVIDIA NIM models in [OpenCode](https://github.com/opencode-ai/opencode)? Here's how:
+
+### 1. Find your model
+
+Run `nim-check` to see which models are available and fast. Pick one that suits you (e.g., `meta/llama-3.1-70b-instruct`, `deepseek-ai/deepseek-v3.2`, `moonshotai/kimi-k2-instruct`).
+
+### 2. Configure OpenCode
+
+Run OpenCode and type `/connect`. Scroll to **"Other"** (custom OpenAI-compatible providers), enter ID `nim`, then paste your NVIDIA API key.
+
+### 3. Edit config
+
+Create or edit `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "providers": {
+    "nim": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NVIDIA NIM",
+      "options": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "env:NVIDIA_NIM_API_KEY"
+      },
+      "models": {
+        "kimi": {
+          "id": "moonshotai/kimi-k2.5"
+        },
+        "deepseek": {
+          "id": "deepseek-ai/deepseek-v3.2"
+        },
+        "llama": {
+          "id": "meta/llama-3.3-70b-instruct"
+        }
+      }
+    }
+  }
+}
+```
+
+### 4. Set environment variable
+
+```bash
+export NVIDIA_NIM_API_KEY=nvapi-xxxx-your-key-here
+# Add to ~/.bashrc or ~/.zshrc for persistence
+```
+
+### 5. Use it
+
+Run `/models` in OpenCode and select **NVIDIA NIM > kimi** (or your chosen model). Done!
+
+> ⚠️ **Note:** Free models have usage limits based on NVIDIA's tier — check [build.nvidia.com](https://build.nvidia.com) for quotas.
 
 ---
 
@@ -189,6 +221,5 @@ MIT © [vava](https://github.com/anomaly)
 ---
 
 <p align="center">
-  <sub>Built with ❤️ for the AI community</sub><br>
-  <sub>Star ⭐ this repo if you find it useful!</sub>
+  <sub>Built with ☕ and 🌹 by <a href="https://github.com/vava-nessa">vava</a></sub>
 </p>
