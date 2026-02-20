@@ -47,18 +47,13 @@ function saveApiKey(key) {
 }
 
 // ─── ASCII Banner ─────────────────────────────────────────────────────────────
-const BANNER = `
-${chalk.greenBright('███╗   ██╗██╗███╗   ██╗██████╗ ')})
-${chalk.greenBright('████╗  ██║██║████╗  ██║██╔══██╗')}
-${chalk.greenBright('██╔██╗ ██║██║██╔██╗ ██║██║  ██║')}
-${chalk.greenBright('██║╚██╗██║██║██║╚██╗██║██║  ██║')}
-${chalk.greenBright('██║ ╚████║██║██║ ╚████║██████╔╝')}
-${chalk.greenBright('╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝╚═════╝ ')}
-${chalk.dim('───────────────────────────────────────')}
-${chalk.cyanBright('        NIM CHECK')} ${chalk.dim('v1.0.0')}
-${chalk.dim('        by vava · github.com/vavanesssa')}
-${chalk.dim('───────────────────────────────────────')}
-`
+const BANNER = chalk.greenBright(`
+███    ██ ██ ███    ███      ██████ ██   ██ ███████  ██████ ██   ██
+████   ██ ██ ████  ████     ██      ███████ █████   ██      █████  
+██ ██  ██ ██ ██  ████ ██     ██      ██   ██ ██      ██      ██  ██ 
+██  ██ ██ ██ ██   ██  ██     ██      ██   ██ ██      ██      ██   ██
+██   ████ ██ ██      ██      ██████ ██   ██ ███████  ██████ ██   ██
+`) + chalk.dim('        by vava · github.com/vavanesssa')
 
 // ─── First-run wizard ─────────────────────────────────────────────────────────
 async function promptApiKey() {
@@ -214,6 +209,8 @@ function renderTable(results, pendingPings, frame) {
   const col = (txt, w) => txt.padStart(w)
 
   const lines = [
+    '',
+    BANNER,
     '',
     `  ${chalk.bold('⚡ NIM Model Availability')}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
