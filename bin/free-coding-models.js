@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file free-ai-opencode.js
+ * @file free-coding-models.js
  * @description Live terminal availability checker for coding LLM models with OpenCode integration.
  *
  * @details
@@ -19,6 +19,8 @@
  *   - Automatic OpenCode config detection and model setup
  *   - Persistent API key storage in ~/.free-coding-models
  *   - Multi-source support via sources.js (easily add new providers)
+ *   - Reliability tracking with color-coded stability indicators
+ *   - Sortable columns (R/T/S/M/P/A/V keys)
  *
  *   → Functions:
  *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.free-coding-models
@@ -26,6 +28,9 @@
  *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
  *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
  *   - `getAvg`: Calculate average latency from all successful pings
+ *   - `getVerdict`: Determine verdict string based on average latency
+ *   - `updateReliability`: Track model stability over time
+ *   - `sortResults`: Sort models by various columns
  *   - `checkNvidiaNimConfig`: Check if NVIDIA NIM provider is configured in OpenCode
  *   - `startOpenCode`: Launch OpenCode with selected model (configures if needed)
  *   - `main`: Orchestrates CLI flow, wizard, ping loops, animation, and output
@@ -43,6 +48,7 @@
  *   - Ping timeout: 6s per attempt, max 2 retries (12s total)
  *   - Ping interval: 10 seconds (continuous monitoring mode)
  *   - Animation: 12 FPS with braille spinners
+ *   - Reliability: Green → Yellow → Orange → Red → Black (degrades with instability)
  *
  *   @see {@link https://build.nvidia.com} NVIDIA API key generation
  *   @see {@link https://github.com/opencode-ai/opencode} OpenCode repository
@@ -282,7 +288,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const W_PING = 10
   const W_AVG = 9
   const W_STATUS = 18
-  const W_VERDICT = 16
+  const W_VERDICT = 14
+  const W_RELIABILITY = 6
 
   // 📖 Sort models using the shared helper
   const sorted = sortResults(results, sortColumn, sortDirection)
@@ -304,25 +311,27 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   
   const rankH    = 'Rank'
   const tierH    = 'Tier'
-  const sourceH  = 'Source'
+  const originH  = 'Origin'
   const modelH   = 'Model'
   const pingH    = sortColumn === 'ping' ? dir + ' Ping' : 'Ping'
   const avgH     = sortColumn === 'avg' ? dir + ' Avg' : 'Avg'
-  const statusH  = 'Status'
+  const statusH  = sortColumn === 'status' ? dir + ' Status' : 'Status'
   const verdictH = sortColumn === 'verdict' ? dir + ' Verdict' : 'Verdict'
+  const relH     = sortColumn === 'reliability' ? dir + ' Rel' : 'Rel'
   
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = chalk.dim(rankH.padEnd(W_RANK))
   const tierH_c    = chalk.dim(tierH.padEnd(W_TIER))
-  const sourceH_c  = chalk.dim(sourceH.padEnd(W_SOURCE))
+  const originH_c  = sortColumn === 'origin' ? chalk.bold.cyan(originH.padEnd(W_SOURCE)) : chalk.dim(originH.padEnd(W_SOURCE))
   const modelH_c   = chalk.dim(modelH.padEnd(W_MODEL))
   const pingH_c    = sortColumn === 'ping' ? chalk.bold.cyan(pingH.padEnd(W_PING)) : chalk.dim(pingH.padEnd(W_PING))
   const avgH_c     = sortColumn === 'avg' ? chalk.bold.cyan(avgH.padEnd(W_AVG)) : chalk.dim(avgH.padEnd(W_AVG))
-  const statusH_c  = chalk.dim(statusH.padEnd(W_STATUS))
+  const statusH_c  = sortColumn === 'status' ? chalk.bold.cyan(statusH.padEnd(W_STATUS)) : chalk.dim(statusH.padEnd(W_STATUS))
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : chalk.dim(verdictH.padEnd(W_VERDICT))
+  const relH_c     = sortColumn === 'reliability' ? chalk.bold.cyan(relH.padEnd(W_RELIABILITY)) : chalk.dim(relH.padEnd(W_RELIABILITY))
   
   // 📖 Header with proper spacing
-  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sourceH_c + '  ' + modelH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + statusH_c + '  ' + verdictH_c)
+  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + originH_c + '  ' + modelH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + statusH_c + '  ' + verdictH_c + '  ' + relH_c)
   
   // 📖 Separator line
   lines.push(
@@ -334,7 +343,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     chalk.dim('─'.repeat(W_PING)) + '  ' +
     chalk.dim('─'.repeat(W_AVG)) + '  ' +
     chalk.dim('─'.repeat(W_STATUS)) + '  ' +
-    chalk.dim('─'.repeat(W_VERDICT))
+    chalk.dim('─'.repeat(W_VERDICT)) + '  ' +
+    chalk.dim('─'.repeat(W_RELIABILITY))
   )
 
   for (let i = 0; i < sorted.length; i++) {
