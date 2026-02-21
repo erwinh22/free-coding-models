@@ -23,7 +23,7 @@
 
 import chalk from 'chalk'
 import { createRequire } from 'module'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 
@@ -319,6 +319,156 @@ async function ping(apiKey, modelId) {
   }
 }
 
+// ─── OpenCode integration ──────────────────────────────────────────────────────
+const OPENCODE_CONFIG = join(homedir(), '.config/opencode/opencode.json')
+
+function backupOpenCodeConfig() {
+  if (!existsSync(OPENCODE_CONFIG)) return null
+  const backupPath = `${OPENCODE_CONFIG}.backup-${Date.now()}`
+  copyFileSync(OPENCODE_CONFIG, backupPath)
+  return backupPath
+}
+
+function loadOpenCodeConfig() {
+  if (!existsSync(OPENCODE_CONFIG)) return { providers: {} }
+  try {
+    return JSON.parse(readFileSync(OPENCODE_CONFIG, 'utf8'))
+  } catch {
+    return { providers: {} }
+  }
+}
+
+function saveOpenCodeConfig(config) {
+  const dir = join(homedir(), '.config/opencode')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  writeFileSync(OPENCODE_CONFIG, JSON.stringify(config, null, 2))
+}
+
+function installModelsInOpenCode(models, apiKey) {
+  const backup = backupOpenCodeConfig()
+  if (backup) {
+    console.log(chalk.dim(`  💾 Backup saved: ${backup}`))
+  }
+  
+  const config = loadOpenCodeConfig()
+  
+  if (!config.providers) config.providers = {}
+  
+  config.providers.nim = {
+    npm: '@ai-sdk/openai-compatible',
+    name: 'NVIDIA NIM',
+    options: {
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      apiKey: 'env:NVIDIA_NIM_API_KEY'
+    },
+    models: {}
+  }
+  
+  for (const model of models) {
+    const key = model.label.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')
+    config.providers.nim.models[key] = { id: model.modelId, name: model.label }
+  }
+  
+  saveOpenCodeConfig(config)
+  console.log(chalk.green(`  ✅ Installed ${models.length} model(s) in OpenCode`))
+  console.log(chalk.dim('  Set NVIDIA_NIM_API_KEY env var and run /models in OpenCode'))
+}
+
+// ─── Interactive model selector ────────────────────────────────────────────────
+async function selectModelsToInstall(results) {
+  const upModels = results.filter(r => r.status === 'up' && r.ping1 && r.ping2 && r.ping3 && r.ping4)
+    .map(r => ({ modelId: r.modelId, label: r.label, avg: Math.round((r.ping1 + r.ping2 + r.ping3 + r.ping4) / 4) }))
+    .sort((a, b) => a.avg - b.avg)
+  
+  if (upModels.length === 0) {
+    console.log(chalk.yellow('  ⚠ No models available to install'))
+    return null
+  }
+  
+  let selected = new Set([0]) // Pre-select fastest
+  let cursor = 0
+  const maxShow = Math.min(15, upModels.length)
+  
+  const render = () => {
+    const lines = [
+      '',
+      chalk.bold('  📦 Install models in OpenCode'),
+      chalk.dim('  ↑↓ Navigate · Space Select · Enter Confirm · Esc Skip'),
+      ''
+    ]
+    
+    for (let i = 0; i < maxShow; i++) {
+      const m = upModels[i]
+      const isSelected = selected.has(i)
+      const isCursor = i === cursor
+      const prefix = isCursor ? '❯ ' : '  '
+      const check = isSelected ? '◉' : '○'
+      const line = `${prefix}${check} ${m.label.padEnd(20)} ${chalk.dim(m.avg + 'ms')}`
+      lines.push(isCursor ? chalk.cyan(line) : (isSelected ? chalk.green(line) : chalk.dim(line)))
+    }
+    
+    if (upModels.length > maxShow) {
+      lines.push(chalk.dim(`  ... and ${upModels.length - maxShow} more`))
+    }
+    
+    lines.push('')
+    lines.push(chalk.dim(`  Selected: ${selected.size} model(s)`))
+    
+    return lines.join('\n')
+  }
+  
+  return new Promise((resolve) => {
+    process.stdin.setRawMode(true)
+    process.stdin.resume()
+    process.stdin.setEncoding('utf8')
+    
+    const cleanup = () => {
+      process.stdin.setRawMode(false)
+      process.stdin.pause()
+      process.stdin.removeListener('data', onKey)
+    }
+    
+    const onKey = (key) => {
+      if (key === '\x1b' || key === '\x03') { // Esc or Ctrl+C
+        cleanup()
+        console.log(chalk.dim('  Skipped'))
+        resolve(null)
+        return
+      }
+      
+      if (key === '\x1b[A' && cursor > 0) { // Up
+        cursor--
+        console.log('\x1b[2J\x1b[H' + render())
+      }
+      
+      if (key === '\x1b[B' && cursor < maxShow - 1) { // Down
+        cursor++
+        console.log('\x1b[2J\x1b[H' + render())
+      }
+      
+      if (key === ' ') { // Space - toggle
+        if (selected.has(cursor)) {
+          selected.delete(cursor)
+        } else {
+          selected.add(cursor)
+        }
+        console.log('\x1b[2J\x1b[H' + render())
+      }
+      
+      if (key === '\r') { // Enter
+        cleanup()
+        const chosen = Array.from(selected).map(i => upModels[i])
+        resolve(chosen)
+      }
+    }
+    
+    process.stdin.on('data', onKey)
+    console.log('\x1b[2J\x1b[H' + render())
+  })
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -404,6 +554,12 @@ async function main() {
   // 📖 Print final table exactly once into normal stdout (stays in scrollback)
   process.stdout.write(ALT_LEAVE)
   process.stdout.write(renderTable(state.results, 0, state.frame) + '\n')
+  
+  // 📖 Ask to install in OpenCode
+  const selected = await selectModelsToInstall(results)
+  if (selected && selected.length > 0) {
+    installModelsInOpenCode(selected, apiKey)
+  }
 }
 
 main().catch((err) => {
