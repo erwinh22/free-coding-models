@@ -48,6 +48,7 @@ import { createRequire } from 'module'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { MODELS } from '../sources.js'
 
 const require = createRequire(import.meta.url)
 const readline = require('readline')
@@ -578,8 +579,8 @@ async function main() {
         return getAvg(a) - getAvg(b)
       })
       const selected = sorted[state.cursor]
-      // 📖 Only allow selecting UP models with at least one successful ping
-      if (selected.status === 'up' && selected.pings.length > 0) {
+      // 📖 Allow selecting ANY model (even timeout/down) - user knows what they're doing
+      if (true) {
         userSelected = { modelId: selected.modelId, label: selected.label, tier: selected.tier }
         // 📖 Stop everything and launch OpenCode immediately
         clearInterval(ticker)
@@ -589,7 +590,17 @@ async function main() {
         process.stdin.pause()
         process.stdin.removeListener('keypress', onKeyPress)
         process.stdout.write(ALT_LEAVE)
-        console.log(chalk.cyan(`\n  ✓ Selected: ${selected.label}\n`))
+        
+        // 📖 Show selection with status
+        if (selected.status === 'timeout') {
+          console.log(chalk.yellow(`  ⚠ Selected: ${selected.label} (currently timing out)`))
+        } else if (selected.status === 'down') {
+          console.log(chalk.red(`  ⚠ Selected: ${selected.label} (currently down)`))
+        } else {
+          console.log(chalk.cyan(`  ✓ Selected: ${selected.label}`))
+        }
+        console.log()
+        
         // 📖 Wait for OpenCode to finish before exiting
         await startOpenCode(userSelected)
         process.exit(0)
