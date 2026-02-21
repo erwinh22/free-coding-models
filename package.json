@@ -1,7 +1,7 @@
 {
-  "name": "free-ai-opencode",
+  "name": "free-coding-models",
   "version": "0.1.1",
-  "description": "Find the fastest NVIDIA NIM coding models in seconds — ping 44 free LLM models optimized for code, pick the best one for OpenCode, Cursor, or any AI coding assistant.",
+  "description": "Find the fastest coding LLM models in seconds — ping free models from multiple providers, pick the best one for OpenCode, Cursor, or any AI coding assistant.",
   "keywords": [
     "nvidia",
     "nim",
@@ -23,23 +23,24 @@
     "openai",
     "api"
   ],
-  "homepage": "https://github.com/vava-nessa/free-ai-opencode#readme",
+  "homepage": "https://github.com/vava-nessa/free-coding-models#readme",
   "bugs": {
-    "url": "https://github.com/vava-nessa/free-ai-opencode/issues"
+    "url": "https://github.com/vava-nessa/free-coding-models/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vava-nessa/free-ai-opencode.git"
+    "url": "git+https://github.com/vava-nessa/free-coding-models.git"
   },
   "license": "MIT",
   "author": "vava",
   "type": "module",
   "main": "bin/free-ai-opencode.js",
   "bin": {
-    "free-ai-opencode": "./bin/free-ai-opencode.js"
+    "free-coding-models": "./bin/free-ai-opencode.js"
   },
   "files": [
     "bin/",
+    "sources.js",
     "README.md",
     "LICENSE"
   ],

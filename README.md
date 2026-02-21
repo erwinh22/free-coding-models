@@ -1,23 +1,24 @@
 <p align="center">
-  <img src="https://img.shields.io/npm/v/free-ai-opencode?color=76b900&label=npm&logo=npm" alt="npm version">
-  <img src="https://img.shields.io/node/v/free-ai-opencode?color=76b900&logo=node.js" alt="node version">
-  <img src="https://img.shields.io/npm/l/free-ai-opencode?color=76b900" alt="license">
+  <img src="https://img.shields.io/npm/v/free-coding-models?color=76b900&label=npm&logo=npm" alt="npm version">
+  <img src="https://img.shields.io/node/v/free-coding-models?color=76b900&logo=node.js" alt="node version">
+  <img src="https://img.shields.io/npm/l/free-coding-models?color=76b900" alt="license">
   <img src="https://img.shields.io/badge/models-44-76b900?logo=nvidia" alt="models count">
 </p>
 
-<h1 align="center">⚡ free-ai-opencode</h1>
+<h1 align="center">⚡ Free Coding Models</h1>
 
 <p align="center">
-  <strong>Find the fastest NVIDIA NIM coding models in seconds</strong><br>
-  <sub>Ping 44 free LLM models optimized for code — pick the best one for OpenCode, Cursor, or any AI coding assistant</sub>
+  <strong>Find the fastest coding LLM models in seconds</strong><br>
+  <sub>Ping free models from multiple providers — pick the best one for OpenCode, Cursor, or any AI coding assistant</sub>
 </p>
 
 <p align="center">
-  <img src="demo.gif" alt="free-ai-opencode demo" width="100%">
+  <img src="demo.gif" alt="free-coding-models demo" width="100%">
 </p>
 
 <p align="center">
   <a href="#-features">Features</a> •
+  <a href="#-requirements">Requirements</a> •
   <a href="#-installation">Installation</a> •
   <a href="#-usage">Usage</a> •
   <a href="#-models">Models</a> •
@@ -39,6 +40,20 @@
 - **🔌 Auto-configuration** — Detects NVIDIA NIM setup, installs if missing, sets as default model
 - **🎨 Clean output** — Zero scrollback pollution, interface stays open until Ctrl+C
 - **📶 Status indicators** — UP ✅ · Timeout ⏱ · Down ❌
+- **🔧 Multi-source support** — Extensible architecture via `sources.js` (add new providers easily)
+
+---
+
+## 📋 Requirements
+
+Before using `free-coding-models`, make sure you have:
+
+1. **Node.js 18+** — Required for native `fetch` API
+2. **OpenCode installed** — [Install OpenCode](https://github.com/opencode-ai/opencode) (`npm install -g opencode`)
+3. **NVIDIA NIM account** — Free tier available at [build.nvidia.com](https://build.nvidia.com)
+4. **API key** — Generate one from Profile → API Keys → Generate API Key
+
+> 💡 **Tip:** Without OpenCode installed, you can still use the tool to benchmark models. OpenCode is only needed for the auto-launch feature.
 
 ---
 
@@ -46,21 +61,19 @@
 
 ```bash
 # npm (global install — recommended)
-npm install -g free-ai-opencode
+npm install -g free-coding-models
 
 # pnpm
-pnpm add -g free-ai-opencode
+pnpm add -g free-coding-models
 
 # bun
-bun add -g free-ai-opencode
+bun add -g free-coding-models
 
 # Or use directly with npx/pnpx/bunx
-npx free-ai-opencode YOUR_API_KEY
-pnpx free-ai-opencode YOUR_API_KEY
-bunx free-ai-opencode YOUR_API_KEY
+npx free-coding-models YOUR_API_KEY
+pnpx free-coding-models YOUR_API_KEY
+bunx free-coding-models YOUR_API_KEY
 ```
-
-**Requirements:** Node.js 18+
 
 ---
 
@@ -161,6 +174,12 @@ That's it! No manual config needed.
 
 If you prefer to configure OpenCode yourself:
 
+#### Prerequisites
+
+1. **OpenCode installed**: `npm install -g opencode` (or equivalent)
+2. **NVIDIA NIM account**: Get a free account at [build.nvidia.com](https://build.nvidia.com)
+3. **API key generated**: Go to Profile → API Keys → Generate API Key
+
 #### 1. Find your model
 
 Run `free-ai-opencode` to see which models are available and fast. The "Latest" column shows real-time latency, "Avg" shows rolling average.
@@ -192,7 +211,46 @@ export NVIDIA_API_KEY=nvapi-xxxx-your-key-here
 # Add to ~/.bashrc or ~/.zshrc for persistence
 ```
 
+#### 4. Use it
+
+Run `/models` in OpenCode and select **NVIDIA NIM** provider and your chosen model.
+
 > ⚠️ **Note:** Free models have usage limits based on NVIDIA's tier — check [build.nvidia.com](https://build.nvidia.com) for quotas.
+
+### Automatic Installation
+
+The tool includes a **smart fallback mechanism**:
+
+1. **Primary**: Try to launch OpenCode with the selected model
+2. **Fallback**: If NVIDIA NIM is not detected in `~/.config/opencode/opencode.json`, the tool:
+   - Shows installation instructions in your terminal
+   - Creates a `prompt` file in `$HOME/prompt` with the exact configuration to add
+   - Launches OpenCode, which will detect and display the prompt automatically
+
+This **"prompt" fallback** ensures that even if NVIDIA NIM isn't pre-configured, OpenCode will guide you through installation with the ready-to-use configuration already prepared.
+
+#### Example prompt file created at `$HOME/prompt`:
+
+```json
+Please install NVIDIA NIM provider in OpenCode by adding this to ~/.config/opencode/opencode.json:
+
+{
+  "provider": {
+    "nvidia": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NVIDIA NIM",
+      "options": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{env:NVIDIA_API_KEY}"
+      }
+    }
+  }
+}
+
+Then set env var: export NVIDIA_API_KEY=your_key_here
+```
+
+OpenCode will automatically detect this file when launched and guide you through the installation.
 
 ---
 
