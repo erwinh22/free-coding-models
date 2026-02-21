@@ -81,7 +81,7 @@ bunx free-coding-models YOUR_API_KEY
 
 ```bash
 # Just run it — will prompt for API key if not set
-free-ai-opencode
+free-coding-models
 ```
 
 **How it works:**
@@ -98,25 +98,25 @@ Setup wizard:
 ```
   🔑 Setup your NVIDIA API key
   📝 Get a free key at: https://build.nvidia.com
-  💾 Key will be saved to ~/.free-ai-opencode
+  💾 Key will be saved to ~/.free-coding-models
 
   Enter your API key: nvapi-xxxx-xxxx
 
-  ✅ API key saved to ~/.free-ai-opencode
+  ✅ API key saved to ~/.free-coding-models
 ```
 
 ### Other ways to provide the key
 
 ```bash
 # Pass directly
-free-ai-opencode nvapi-xxxx-your-key-here
+free-coding-models nvapi-xxxx-your-key-here
 
 # Use environment variable
-NVIDIA_API_KEY=nvapi-xxx free-ai-opencode
+NVIDIA_API_KEY=nvapi-xxx free-coding-models
 
 # Or add to your shell profile
 export NVIDIA_API_KEY=nvapi-xxxx-your-key-here
-free-ai-opencode
+free-coding-models
 ```
 
 ### Get your free API key
@@ -124,7 +124,7 @@ free-ai-opencode
 1. **Create NVIDIA Account** — Sign up at [build.nvidia.com](https://build.nvidia.com) with your email
 2. **Verify** — Confirm email, set privacy options, create NGC account, verify phone
 3. **Generate Key** — Go to Profile → API Keys → Generate API Key
-4. **Name it** — e.g., "free-ai-opencode" or "OpenCode-NIM"
+4. **Name it** — e.g., "free-coding-models" or "OpenCode-NIM"
 5. **Set expiration** — Choose "Never" for convenience
 6. **Copy securely** — Key is shown only once!
 
@@ -158,9 +158,9 @@ free-ai-opencode
 
 ## 🔌 Use with OpenCode
 
-**The easiest way** — let `free-ai-opencode` do everything:
+**The easiest way** — let `free-coding-models` do everything:
 
-1. **Run**: `free-ai-opencode`
+1. **Run**: `free-coding-models`
 2. **Wait** for models to be pinged (green ✅ status)
 3. **Navigate** with ↑↓ arrows to your preferred model
 4. **Press Enter** — tool automatically:
@@ -182,7 +182,7 @@ If you prefer to configure OpenCode yourself:
 
 #### 1. Find your model
 
-Run `free-ai-opencode` to see which models are available and fast. The "Latest" column shows real-time latency, "Avg" shows rolling average.
+Run `free-coding-models` to see which models are available and fast. The "Latest" column shows real-time latency, "Avg" shows rolling average.
 
 #### 2. Configure OpenCode
 
@@ -293,8 +293,8 @@ OpenCode will automatically detect this file when launched and guide you through
 ## 🔧 Development
 
 ```bash
-git clone https://github.com/vava-nessa/free-ai-opencode
-cd free-ai-opencode
+git clone https://github.com/vava-nessa/free-coding-models
+cd free-coding-models
 npm install
 npm start -- YOUR_API_KEY
 ```
@@ -321,4 +321,4 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 **A:** They represent average round-trip times measured during testing; actual performance may vary based on network conditions.
 
 ## 📧 Support
-For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/free-ai-opencode
+For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/QnR8xq9p

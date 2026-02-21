@@ -167,8 +167,12 @@ const getAvg = r => {
   return Math.round(successfulPings.reduce((a, b) => a + b) / successfulPings.length)
 }
 
-// 📖 Verdict order for sorting
+// 📖 Verdict order for sorting (and reliability tracking)
 const VERDICT_ORDER = ['Perfect', 'Normal', 'Slow', 'Very Slow', 'Unstable', 'Not Active', 'Pending']
+
+// 📖 Reliability levels (0=best, 4=worst) - emojis for display
+const RELIABILITY_EMOJIS = ['🟢', '🟡', '🟠', '🔴', '⚫']
+const RELIABILITY_LABELS = ['Stable', 'Mostly OK', 'Variable', 'Unreliable', 'Down']
 
 // 📖 Get verdict for a model result
 const getVerdict = (r) => {
@@ -184,6 +188,36 @@ const getVerdict = (r) => {
   if (avg < 5000) return 'Very Slow'
   if (avg < 10000) return 'Unstable'
   return 'Unstable'
+}
+
+// 📖 Update reliability score based on verdict evolution
+// 📖 reliabilityScore: 0=green(best) → 4=black(worst)
+// 📖 Each verdict degradation = +1 score, improvement = -1 score
+const updateReliability = (modelResult) => {
+  const currentVerdict = getVerdict(modelResult)
+  const prevVerdict = modelResult.prevVerdict || currentVerdict
+  
+  // 📖 Initialize reliability if not set (default: green/best)
+  if (modelResult.reliabilityScore === undefined) {
+    modelResult.reliabilityScore = 0
+  }
+  
+  // 📖 Compare verdicts and adjust reliability
+  const currentRank = VERDICT_ORDER.indexOf(currentVerdict)
+  const prevRank = VERDICT_ORDER.indexOf(prevVerdict)
+  
+  if (currentRank > prevRank) {
+    // 📖 Verdict degraded (e.g., Perfect → Normal) = lose reliability
+    modelResult.reliabilityScore = Math.min(4, modelResult.reliabilityScore + 1)
+  } else if (currentRank < prevRank) {
+    // 📖 Verdict improved = gain reliability back
+    modelResult.reliabilityScore = Math.max(0, modelResult.reliabilityScore - 1)
+  }
+  
+  // 📖 Store current verdict for next comparison
+  modelResult.prevVerdict = currentVerdict
+  
+  return modelResult.reliabilityScore
 }
 
 // 📖 Sort results using the same logic as renderTable - used for both display and selection

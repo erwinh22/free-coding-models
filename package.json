@@ -34,9 +34,9 @@
   "license": "MIT",
   "author": "vava",
   "type": "module",
-  "main": "bin/free-ai-opencode.js",
+  "main": "bin/free-coding-models.js",
   "bin": {
-    "free-coding-models": "./bin/free-ai-opencode.js"
+    "free-coding-models": "./bin/free-coding-models.js"
   },
   "files": [
     "bin/",
@@ -45,7 +45,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node bin/free-ai-opencode.js"
+    "start": "node bin/free-coding-models.js"
   },
   "dependencies": {
     "chalk": "^5.4.1"
