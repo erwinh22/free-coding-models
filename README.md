@@ -32,8 +32,12 @@
 - **🚀 Parallel pings** — All 44 models tested simultaneously via native `fetch`
 - **📊 Real-time animation** — Watch latency appear live in alternate screen buffer
 - **🏆 Smart ranking** — Top 3 fastest models highlighted with medals 🥇🥈🥉
-- **⏱ 4x reliability** — Each UP model gets 4 pings for accurate average latency
-- **🎨 Clean output** — Zero scrollback pollution, only final table remains
+- **⏱ Continuous monitoring** — Pings all models every 10 seconds forever, never stops
+- **📈 Rolling averages** — Avg calculated from ALL successful pings since start
+- **🔄 Auto-retry** — Timeout models keep getting retried, nothing is ever "given up on"
+- **🎮 Interactive selection** — Navigate with arrow keys directly in the table, press Enter to launch OpenCode
+- **🔌 Auto-configuration** — Detects NVIDIA NIM setup, installs if missing, sets as default model
+- **🎨 Clean output** — Zero scrollback pollution, interface stays open until Ctrl+C
 - **📶 Status indicators** — UP ✅ · Timeout ⏱ · Down ❌
 
 ---
@@ -66,6 +70,15 @@ bunx free-ai-opencode YOUR_API_KEY
 # Just run it — will prompt for API key if not set
 free-ai-opencode
 ```
+
+**How it works:**
+1. **Ping phase** — All 44 models are pinged in parallel
+2. **Continuous monitoring** — Models are re-pinged every 10 seconds forever
+3. **Real-time updates** — Watch "Latest" and "Avg" columns update live
+4. **Select anytime** — Use ↑↓ arrows to navigate, press Enter on a model to launch OpenCode
+5. **Smart detection** — Automatically detects if NVIDIA NIM is configured in OpenCode:
+   - ✅ If configured → Sets model as default and launches OpenCode
+   - ⚠️ If missing → Shows installation instructions and launches OpenCode
 
 Setup wizard:
 
@@ -108,76 +121,76 @@ free-ai-opencode
 
 ## 🤖 Coding Models
 
-**44 coding models** across 4 tiers, sorted by code generation capability:
+**44 coding models** across 8 tiers, ranked by [Aider Polyglot benchmark](https://aider.chat/docs/leaderboards) (225 coding exercises across C++/Go/Java/JS/Python/Rust). Models without a confirmed Aider score are estimated from model family, size, and published release benchmarks.
 
-| Tier | Count | Models |
-|------|-------|--------|
-| **S** | 11 | Kimi K2.5, GLM 5, Qwen3 Coder 480B, Qwen3.5 400B VLM, Nemotron Nano 30B, DeepSeek V3.2, Nemotron Ultra 253B, Mistral Large 675B, Qwen3 235B, MiniMax M2.1, Devstral 2 |
-| **A** | 13 | GLM 4.7, Kimi K2 Thinking/Instruct, DeepSeek V3.1/Terminus, R1 Distill 14B, QwQ 32B, Qwen3 80B Thinking/Instruct, Qwen2.5 Coder 32B, MiniMax M2, Mistral Medium 3, Magistral Small |
-| **B** | 11 | Llama 4 Maverick/Scout, Llama 3.1 405B, Llama 3.3 70B, Nemotron Super 49B, R1 Distill 32B/8B, Colosseum 355B, GPT OSS 120B/20B, Stockmark 100B |
-| **C** | 9 | R1 Distill 7B, Seed OSS 36B, Step 3.5 Flash, Mixtral 8x22B, Ministral 14B, Granite 34B Code, Gemma 2 9B, Phi 3.5 Mini, Phi 4 Mini |
+| Tier | Score | Count | Models |
+|------|-------|-------|--------|
+| **S+** | 75%+ | 7 | DeepSeek V3.1/Terminus, DeepSeek V3.2, Kimi K2.5, Devstral 2, Nemotron Ultra 253B, Mistral Large 675B |
+| **S**  | 62–74% | 7 | Qwen2.5 Coder 32B, GLM 5, Qwen3.5 400B VLM, Qwen3 Coder 480B, Qwen3 80B Thinking, Llama 3.1 405B, MiniMax M2.1 |
+| **A+** | 54–62% | 6 | Kimi K2 Thinking/Instruct, Qwen3 235B, Llama 3.3 70B, GLM 4.7, Qwen3 80B Instruct |
+| **A**  | 44–54% | 5 | MiniMax M2, Mistral Medium 3, Magistral Small, Nemotron Nano 30B, R1 Distill 32B |
+| **A-** | 36–44% | 5 | GPT OSS 120B, Nemotron Super 49B, Llama 4 Scout, R1 Distill 14B, Colosseum 355B |
+| **B+** | 25–36% | 5 | QwQ 32B, GPT OSS 20B, Stockmark 100B, Seed OSS 36B, Step 3.5 Flash |
+| **B**  | 14–25% | 5 | Llama 4 Maverick, Mixtral 8x22B, Ministral 14B, Granite 34B Code, R1 Distill 8B |
+| **C**  | <14%  | 4 | R1 Distill 7B, Gemma 2 9B, Phi 3.5 Mini, Phi 4 Mini |
 
-### Why these models?
+### Tier scale
 
-- **S-tier:** Best for coding — frontier models with top code generation & reasoning
-- **A-tier:** Great alternatives — often faster, strong at code tasks
-- **B-tier:** Solid coders — good for specific programming tasks
-- **C-tier:** Lightweight — smaller models, edge-friendly for code completion
+- **S+/S** — Frontier coders, top Aider polyglot scores, best for complex refactors
+- **A+/A** — Excellent alternatives, strong at most coding tasks
+- **A-/B+** — Solid performers, good for targeted programming tasks
+- **B/C** — Lightweight or older models, good for code completion on constrained infra
 
 ---
 
 ## 🔌 Use with OpenCode
 
-Want to use NVIDIA NIM models in [OpenCode](https://github.com/opencode-ai/opencode)? Here's how:
+**The easiest way** — let `free-ai-opencode` do everything:
 
-### 1. Find your model
+1. **Run**: `free-ai-opencode`
+2. **Wait** for models to be pinged (green ✅ status)
+3. **Navigate** with ↑↓ arrows to your preferred model
+4. **Press Enter** — tool automatically:
+   - Detects if NVIDIA NIM is configured in OpenCode
+   - Sets your selected model as default in `~/.config/opencode/opencode.json`
+   - Launches OpenCode with the model ready to use
 
-Run `free-ai-opencode` to see which models are available and fast. Pick one that suits you (e.g., `meta/llama-3.1-70b-instruct`, `deepseek-ai/deepseek-v3.2`, `moonshotai/kimi-k2-instruct`).
+That's it! No manual config needed.
 
-### 2. Configure OpenCode
+### Manual Setup (Optional)
 
-Run OpenCode and type `/connect`. Scroll to **"Other"** (custom OpenAI-compatible providers), enter ID `nim`, then paste your NVIDIA API key.
+If you prefer to configure OpenCode yourself:
 
-### 3. Edit config
+#### 1. Find your model
+
+Run `free-ai-opencode` to see which models are available and fast. The "Latest" column shows real-time latency, "Avg" shows rolling average.
+
+#### 2. Configure OpenCode
 
 Create or edit `~/.config/opencode/opencode.json`:
 
 ```json
 {
-  "providers": {
-    "nim": {
+  "provider": {
+    "nvidia": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "NVIDIA NIM",
       "options": {
         "baseURL": "https://integrate.api.nvidia.com/v1",
-        "apiKey": "env:NVIDIA_NIM_API_KEY"
-      },
-      "models": {
-        "kimi": {
-          "id": "moonshotai/kimi-k2.5"
-        },
-        "deepseek": {
-          "id": "deepseek-ai/deepseek-v3.2"
-        },
-        "llama": {
-          "id": "meta/llama-3.3-70b-instruct"
-        }
+        "apiKey": "{env:NVIDIA_API_KEY}"
       }
     }
-  }
+  },
+  "model": "nvidia/deepseek-ai/deepseek-v3.2"
 }
 ```
 
-### 4. Set environment variable
+#### 3. Set environment variable
 
 ```bash
-export NVIDIA_NIM_API_KEY=nvapi-xxxx-your-key-here
+export NVIDIA_API_KEY=nvapi-xxxx-your-key-here
 # Add to ~/.bashrc or ~/.zshrc for persistence
 ```
-
-### 5. Use it
-
-Run `/models` in OpenCode and select **NVIDIA NIM > kimi** (or your chosen model). Done!
 
 > ⚠️ **Note:** Free models have usage limits based on NVIDIA's tier — check [build.nvidia.com](https://build.nvidia.com) for quotas.
 
@@ -189,13 +202,18 @@ Run `/models` in OpenCode and select **NVIDIA NIM > kimi** (or your chosen model
 ┌─────────────────────────────────────────────────────────────┐
 │  1. Enter alternate screen buffer (like vim/htop/less)      │
 │  2. Ping ALL models in parallel                             │
-│  3. Re-ping UP models 3 more times for latency reliability  │
-│  4. Exit alternate screen                                   │
-│  5. Print final sorted table to stdout (stays in history)   │
+│  3. Display real-time table with Latest/Avg columns         │
+│  4. Re-ping ALL models every 10 seconds (forever)          │
+│  5. Update rolling averages from ALL successful pings      │
+│  6. User can navigate with ↑↓ and select with Enter       │
+│  7. On Enter: stop monitoring, exit alt screen            │
+│  8. Detect NVIDIA NIM config in OpenCode                   │
+│  9. If configured: update default model, launch OpenCode   │
+│ 10. If missing: show install prompt, launch OpenCode      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Result:** Clean terminal history with just the final table — no animation garbage.
+**Result:** Continuous monitoring interface that stays open until you select a model or press Ctrl+C. Rolling averages give you accurate long-term latency data, and you can launch OpenCode with your chosen model in one keystroke.
 
 ---
 
@@ -205,6 +223,12 @@ Run `/models` in OpenCode and select **NVIDIA NIM > kimi** (or your chosen model
 |-----------|-------------|
 | `NVIDIA_API_KEY` | Environment variable for API key |
 | `<api-key>` | First positional argument |
+
+**Configuration:**
+- **Ping timeout**: 6 seconds per attempt (models slower than this are unusable)
+- **Retry policy**: 2 attempts max per ping cycle (12 seconds total before moving to next model)
+- **Ping interval**: 10 seconds between complete re-pings of all models
+- **Monitor mode**: Interface stays open forever, press Ctrl+C to exit
 
 ---
 
