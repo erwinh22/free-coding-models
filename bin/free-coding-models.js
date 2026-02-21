@@ -19,8 +19,8 @@
  *   - Automatic OpenCode config detection and model setup
  *   - Persistent API key storage in ~/.free-coding-models
  *   - Multi-source support via sources.js (easily add new providers)
- *   - Reliability tracking with color-coded stability indicators
- *   - Sortable columns (R/T/S/M/P/A/V keys)
+ *   - Uptime percentage tracking (successful pings / total pings)
+ *   - Sortable columns (R/T/O/M/P/A/S/V/U keys)
  *
  *   → Functions:
  *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.free-coding-models
@@ -28,8 +28,8 @@
  *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
  *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
  *   - `getAvg`: Calculate average latency from all successful pings
- *   - `getVerdict`: Determine verdict string based on average latency
- *   - `updateReliability`: Track model stability over time
+ *   - `getVerdict`: Determine verdict string based on average latency (Overloaded for 429)
+ *   - `getUptime`: Calculate uptime percentage from ping history
  *   - `sortResults`: Sort models by various columns
  *   - `checkNvidiaNimConfig`: Check if NVIDIA NIM provider is configured in OpenCode
  *   - `startOpenCode`: Launch OpenCode with selected model (configures if needed)
@@ -123,8 +123,8 @@ const ALT_CLEAR  = '\x1b[H\x1b[2J'
 // 📖 This allows easy addition of new model sources beyond NVIDIA NIM
 
 const NIM_URL      = 'https://integrate.api.nvidia.com/v1/chat/completions'
-const PING_TIMEOUT  = 6_000    // 📖 6s per attempt before abort - models slower than this are unusable for coding
-const PING_INTERVAL = 5_000   // 📖 Ping all models every 5 seconds in continuous mode
+const PING_TIMEOUT  = 15_000   // 📖 15s per attempt before abort - slow models get more time
+const PING_INTERVAL = 2_000    // 📖 Ping all models every 2 seconds in continuous mode
 
 const FPS          = 12
 const COL_MODEL    = 22
@@ -167,24 +167,23 @@ const spinCell = (f, o = 0) => chalk.dim.yellow(FRAMES[(f + o) % FRAMES.length].
 
 const TIER_ORDER = ['S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
 const getAvg = r => {
-  // 📖 Calculate average from ALL successful pings (exclude timeouts)
-  const successfulPings = (r.pings || []).filter(p => p !== null && p !== 'TIMEOUT')
+  // 📖 Calculate average only from numeric pings (successful code 200 responses)
+  // 📖 Exclude timeouts and error codes (429, 500, etc.) which are strings
+  const successfulPings = (r.pings || []).filter(p => typeof p === 'number')
   if (successfulPings.length === 0) return Infinity
   return Math.round(successfulPings.reduce((a, b) => a + b) / successfulPings.length)
 }
 
-// 📖 Verdict order for sorting (and reliability tracking)
-const VERDICT_ORDER = ['Perfect', 'Normal', 'Slow', 'Very Slow', 'Unstable', 'Not Active', 'Pending']
-
-// 📖 Reliability levels (0=best, 4=worst) - emojis for display
-const RELIABILITY_EMOJIS = ['🟢', '🟡', '🟠', '🔴', '⚫']
-const RELIABILITY_LABELS = ['Stable', 'Mostly OK', 'Variable', 'Unreliable', 'Down']
+// 📖 Verdict order for sorting
+const VERDICT_ORDER = ['Perfect', 'Normal', 'Slow', 'Very Slow', 'Overloaded', 'Unstable', 'Not Active', 'Pending']
 
 // 📖 Get verdict for a model result
 const getVerdict = (r) => {
   const avg = getAvg(r)
-  const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p !== null && p !== 'TIMEOUT')
+  const wasUpBefore = r.pings.length > 0 && r.pings.some(p => typeof p === 'number')
   
+  // 📖 429 = rate limited = Overloaded
+  if (r.httpCode === '429') return 'Overloaded'
   if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) return 'Unstable'
   if (r.status === 'timeout' || r.status === 'down') return 'Not Active'
   if (avg === Infinity) return 'Pending'
@@ -196,34 +195,12 @@ const getVerdict = (r) => {
   return 'Unstable'
 }
 
-// 📖 Update reliability score based on verdict evolution
-// 📖 reliabilityScore: 0=green(best) → 4=black(worst)
-// 📖 Each verdict degradation = +1 score, improvement = -1 score
-const updateReliability = (modelResult) => {
-  const currentVerdict = getVerdict(modelResult)
-  const prevVerdict = modelResult.prevVerdict || currentVerdict
-  
-  // 📖 Initialize reliability if not set (default: green/best)
-  if (modelResult.reliabilityScore === undefined) {
-    modelResult.reliabilityScore = 0
-  }
-  
-  // 📖 Compare verdicts and adjust reliability
-  const currentRank = VERDICT_ORDER.indexOf(currentVerdict)
-  const prevRank = VERDICT_ORDER.indexOf(prevVerdict)
-  
-  if (currentRank > prevRank) {
-    // 📖 Verdict degraded (e.g., Perfect → Normal) = lose reliability
-    modelResult.reliabilityScore = Math.min(4, modelResult.reliabilityScore + 1)
-  } else if (currentRank < prevRank) {
-    // 📖 Verdict improved = gain reliability back
-    modelResult.reliabilityScore = Math.max(0, modelResult.reliabilityScore - 1)
-  }
-  
-  // 📖 Store current verdict for next comparison
-  modelResult.prevVerdict = currentVerdict
-  
-  return modelResult.reliabilityScore
+// 📖 Calculate uptime percentage (successful pings / total pings)
+// 📖 Only count numeric pings (code 200 responses), not error codes or timeouts
+const getUptime = (r) => {
+  if (r.pings.length === 0) return 0
+  const successful = r.pings.filter(p => typeof p === 'number').length
+  return Math.round((successful / r.pings.length) * 100)
 }
 
 // 📖 Sort results using the same logic as renderTable - used for both display and selection
@@ -238,7 +215,7 @@ const sortResults = (results, sortColumn, sortDirection) => {
       case 'tier':
         cmp = TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier)
         break
-      case 'source':
+      case 'origin':
         cmp = 'NVIDIA NIM'.localeCompare('NVIDIA NIM') // All same for now
         break
       case 'model':
@@ -262,34 +239,42 @@ const sortResults = (results, sortColumn, sortDirection) => {
         cmp = VERDICT_ORDER.indexOf(aVerdict) - VERDICT_ORDER.indexOf(bVerdict)
         break
       }
+      case 'uptime':
+        cmp = getUptime(a) - getUptime(b)
+        break
     }
     
     return sortDirection === 'asc' ? cmp : -cmp
   })
 }
 
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc') {
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now()) {
   const up      = results.filter(r => r.status === 'up').length
   const down    = results.filter(r => r.status === 'down').length
   const timeout = results.filter(r => r.status === 'timeout').length
   const pending = results.filter(r => r.status === 'pending').length
 
+  // 📖 Calculate seconds until next ping
+  const timeSinceLastPing = Date.now() - lastPingTime
+  const timeUntilNextPing = Math.max(0, pingInterval - timeSinceLastPing)
+  const secondsUntilNext = Math.ceil(timeUntilNextPing / 1000)
+
   const phase = pending > 0
     ? chalk.dim(`discovering — ${pending} remaining…`)
     : pendingPings > 0
       ? chalk.dim(`pinging — ${pendingPings} in flight…`)
-      : chalk.dim('continuous monitoring ✓')
+      : chalk.dim(`next ping ${secondsUntilNext}s`)
 
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
   const W_TIER = 6
   const W_SOURCE = 14
   const W_MODEL = 26
-  const W_PING = 10
-  const W_AVG = 9
+  const W_PING = 14
+  const W_AVG = 11
   const W_STATUS = 18
   const W_VERDICT = 14
-  const W_RELIABILITY = 6
+  const W_UPTIME = 6
 
   // 📖 Sort models using the shared helper
   const sorted = sortResults(results, sortColumn, sortDirection)
@@ -313,11 +298,11 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const tierH    = 'Tier'
   const originH  = 'Origin'
   const modelH   = 'Model'
-  const pingH    = sortColumn === 'ping' ? dir + ' Ping' : 'Ping'
-  const avgH     = sortColumn === 'avg' ? dir + ' Avg' : 'Avg'
+  const pingH    = sortColumn === 'ping' ? dir + ' Latest Ping' : 'Latest Ping'
+  const avgH     = sortColumn === 'avg' ? dir + ' Avg Ping' : 'Avg Ping'
   const statusH  = sortColumn === 'status' ? dir + ' Status' : 'Status'
   const verdictH = sortColumn === 'verdict' ? dir + ' Verdict' : 'Verdict'
-  const relH     = sortColumn === 'reliability' ? dir + ' Rel' : 'Rel'
+  const uptimeH  = sortColumn === 'uptime' ? dir + ' Up%' : 'Up%'
   
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = chalk.dim(rankH.padEnd(W_RANK))
@@ -328,10 +313,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const avgH_c     = sortColumn === 'avg' ? chalk.bold.cyan(avgH.padEnd(W_AVG)) : chalk.dim(avgH.padEnd(W_AVG))
   const statusH_c  = sortColumn === 'status' ? chalk.bold.cyan(statusH.padEnd(W_STATUS)) : chalk.dim(statusH.padEnd(W_STATUS))
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : chalk.dim(verdictH.padEnd(W_VERDICT))
-  const relH_c     = sortColumn === 'reliability' ? chalk.bold.cyan(relH.padEnd(W_RELIABILITY)) : chalk.dim(relH.padEnd(W_RELIABILITY))
+  const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padStart(W_UPTIME)) : chalk.dim(uptimeH.padStart(W_UPTIME))
   
   // 📖 Header with proper spacing
-  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + originH_c + '  ' + modelH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + statusH_c + '  ' + verdictH_c + '  ' + relH_c)
+  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + originH_c + '  ' + modelH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + statusH_c + '  ' + verdictH_c + '  ' + uptimeH_c)
   
   // 📖 Separator line
   lines.push(
@@ -344,7 +329,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     chalk.dim('─'.repeat(W_AVG)) + '  ' +
     chalk.dim('─'.repeat(W_STATUS)) + '  ' +
     chalk.dim('─'.repeat(W_VERDICT)) + '  ' +
-    chalk.dim('─'.repeat(W_RELIABILITY))
+    chalk.dim('─'.repeat(W_UPTIME))
   )
 
   for (let i = 0; i < sorted.length; i++) {
@@ -360,12 +345,16 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     const name = r.label.slice(0, W_MODEL).padEnd(W_MODEL)
 
     // 📖 Latest ping (just number, no "ms") - build plain text, then colorize
+    // 📖 pings array contains: numbers (success times), 'TIMEOUT', or error codes like '429'
     const latestPing = r.pings.length > 0 ? r.pings[r.pings.length - 1] : null
     let pingCell
     if (latestPing === null) {
       pingCell = chalk.dim('—'.padEnd(W_PING))
     } else if (latestPing === 'TIMEOUT') {
       pingCell = chalk.red('TIMEOUT'.padEnd(W_PING))
+    } else if (typeof latestPing === 'string') {
+      // 📖 Error code (429, 500, etc.) - not a successful ping
+      pingCell = chalk.red(String(latestPing).padEnd(W_PING))
     } else {
       const str = String(latestPing).padEnd(W_PING)
       pingCell = latestPing < 500 ? chalk.greenBright(str) : latestPing < 1500 ? chalk.yellow(str) : chalk.red(str)
@@ -373,7 +362,6 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
     // 📖 Avg ping (just number, no "ms")
     const avg = getAvg(r)
-    const successfulPingCount = (r.pings || []).filter(p => p !== null && p !== 'TIMEOUT').length
     let avgCell
     if (avg !== Infinity) {
       const str = String(avg).padEnd(W_AVG)
@@ -383,16 +371,15 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     }
 
     // 📖 Status column - build plain text with emoji, pad, then colorize
-    // 📖 Emojis are 2 chars in JS but display as ~2 visual chars
     let statusText, statusColor
     if (r.status === 'pending') {
       statusText = `${FRAMES[frame % FRAMES.length]} wait`
       statusColor = (s) => chalk.dim.yellow(s)
     } else if (r.status === 'up') {
-      statusText = `✅ UP (${successfulPingCount})`
+      statusText = `✅ UP`
       statusColor = (s) => s
     } else if (r.status === 'timeout') {
-      statusText = `⏱ TIMEOUT (${successfulPingCount})`
+      statusText = `⏱ TIMEOUT`
       statusColor = (s) => chalk.yellow(s)
     } else if (r.status === 'down') {
       const code = (r.httpCode ?? 'ERR').slice(0, 3)
@@ -405,9 +392,12 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     const status = statusColor(statusText.padEnd(W_STATUS))
 
     // 📖 Verdict column - build plain text with emoji, pad, then colorize
-    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p !== null && p !== 'TIMEOUT')
+    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => typeof p === 'number')
     let verdictText, verdictColor
-    if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) {
+    if (r.httpCode === '429') {
+      verdictText = '🔥 Overloaded'
+      verdictColor = (s) => chalk.yellow.bold(s)
+    } else if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) {
       verdictText = '⚠️ Unstable'
       verdictColor = (s) => chalk.magenta(s)
     } else if (r.status === 'timeout' || r.status === 'down') {
@@ -434,8 +424,22 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     }
     const speedCell = verdictColor(verdictText.padEnd(W_VERDICT))
 
+    // 📖 Uptime column - percentage of successful pings
+    const uptimePercent = getUptime(r)
+    const uptimeStr = uptimePercent + '%'
+    let uptimeCell
+    if (uptimePercent >= 90) {
+      uptimeCell = chalk.greenBright(uptimeStr.padStart(W_UPTIME))
+    } else if (uptimePercent >= 70) {
+      uptimeCell = chalk.yellow(uptimeStr.padStart(W_UPTIME))
+    } else if (uptimePercent >= 50) {
+      uptimeCell = chalk.rgb(255, 165, 0)(uptimeStr.padStart(W_UPTIME)) // orange
+    } else {
+      uptimeCell = chalk.red(uptimeStr.padStart(W_UPTIME))
+    }
+
     // 📖 Build row with double space between columns
-    const row = '  ' + num + '  ' + tier + '  ' + source + '  ' + name + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell
+    const row = '  ' + num + '  ' + tier + '  ' + source + '  ' + name + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
     
     if (isCursor) {
       lines.push(chalk.bgRgb(139, 0, 139)(row))
@@ -445,7 +449,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   }
 
   lines.push('')
-  lines.push(chalk.dim('  ↑↓ Navigate  •  Enter Select  •  R/T/S/M/P/A/V Sort  •  Ctrl+C Exit'))
+  const intervalSec = Math.round(pingInterval / 1000)
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  Enter Select  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  Ctrl+C Exit`))
   lines.push('')
   return lines.join('\n')
 }
@@ -603,6 +608,9 @@ After installation, you can use: opencode --model nvidia/${model.modelId}`
 async function main() {
   // 📖 Priority: CLI arg > env var > saved config > wizard
   let apiKey = process.argv[2] || process.env.NVIDIA_API_KEY || loadApiKey()
+  
+  // 📖 Check for BEST flag - only show top tiers (A+, S, S+)
+  const bestMode = process.argv.includes('--BEST') || process.argv.includes('--best')
 
   if (!apiKey) {
     apiKey = await promptApiKey()
@@ -615,16 +623,22 @@ async function main() {
     }
   }
 
-  const results = MODELS.map(([modelId, label, tier], i) => ({
+  // 📖 Filter models to only show top tiers if BEST mode is active
+  let results = MODELS.map(([modelId, label, tier], i) => ({
     idx: i + 1, modelId, label, tier,
     status: 'pending',
     pings: [],  // 📖 All ping results (ms or 'TIMEOUT')
     httpCode: null,
   }))
+  
+  if (bestMode) {
+    results = results.filter(r => r.tier === 'S+' || r.tier === 'S' || r.tier === 'A+')
+  }
 
   // 📖 Add interactive selection state - cursor index and user's choice
-  // 📖 sortColumn: 'rank'|'tier'|'source'|'model'|'ping'|'avg'|'status'|'verdict'
+  // 📖 sortColumn: 'rank'|'tier'|'origin'|'model'|'ping'|'avg'|'status'|'verdict'|'uptime'
   // 📖 sortDirection: 'asc' (default) or 'desc'
+  // 📖 pingInterval: current interval in ms (default 5000, adjustable with W/X keys)
   const state = { 
     results, 
     pendingPings: 0, 
@@ -632,7 +646,9 @@ async function main() {
     cursor: 0, 
     selectedModel: null,
     sortColumn: 'avg',
-    sortDirection: 'asc'
+    sortDirection: 'asc',
+    pingInterval: PING_INTERVAL,  // 📖 Track current interval for C/V keys
+    lastPingTime: Date.now()  // 📖 Track when last ping cycle started
   }
 
   // 📖 Enter alternate screen — animation runs here, zero scrollback pollution
@@ -641,6 +657,7 @@ async function main() {
   // 📖 Ensure we always leave alt screen cleanly (Ctrl+C, crash, normal exit)
   const exit = (code = 0) => {
     clearInterval(ticker)
+    clearTimeout(state.pingIntervalObj)
     process.stdout.write(ALT_LEAVE)
     process.exit(code)
   }
@@ -657,10 +674,10 @@ async function main() {
   const onKeyPress = async (str, key) => {
     if (!key) return
     
-    // 📖 Sorting keys: R=rank, T=tier, S=source, M=model, P=ping, A=avg, V=verdict
+    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, P=ping, A=avg, S=status, V=verdict, L=reliability
     const sortKeys = {
-      'r': 'rank', 't': 'tier', 's': 'source', 'm': 'model',
-      'p': 'ping', 'a': 'avg', 'v': 'verdict'
+      'r': 'rank', 't': 'tier', 'o': 'origin', 'm': 'model',
+      'p': 'ping', 'a': 'avg', 's': 'status', 'v': 'verdict', 'u': 'uptime'
     }
     
     if (sortKeys[key.name]) {
@@ -672,6 +689,18 @@ async function main() {
         state.sortColumn = col
         state.sortDirection = 'asc'
       }
+      return
+    }
+    
+    // 📖 Interval adjustment keys: W=decrease (faster), X=increase (slower)
+    // 📖 Minimum 1s, maximum 60s
+    if (key.name === 'w') {
+      state.pingInterval = Math.max(1000, state.pingInterval - 1000)
+      return
+    }
+    
+    if (key.name === 'x') {
+      state.pingInterval = Math.min(60000, state.pingInterval + 1000)
       return
     }
     
@@ -703,7 +732,7 @@ async function main() {
         userSelected = { modelId: selected.modelId, label: selected.label, tier: selected.tier }
         // 📖 Stop everything and launch OpenCode immediately
         clearInterval(ticker)
-        clearInterval(pingInterval)
+        clearTimeout(state.pingIntervalObj)
         readline.emitKeypressEvents(process.stdin)
         process.stdin.setRawMode(true)
         process.stdin.pause()
@@ -738,10 +767,10 @@ async function main() {
   // 📖 Animation loop: clear alt screen + redraw table at FPS with cursor
   const ticker = setInterval(() => {
     state.frame++
-    process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection))
+    process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime))
   }, Math.round(1000 / FPS))
 
-  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection))
+  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime))
 
   // ── Continuous ping loop — ping all models every 10 seconds forever ──────────
   
@@ -749,8 +778,15 @@ async function main() {
   const pingModel = async (r) => {
     const { code, ms } = await ping(apiKey, r.modelId)
     
-    // 📖 Add ping result to history
-    r.pings.push(ms === 'TIMEOUT' ? 'TIMEOUT' : ms)
+    // 📖 Add ping result to history - only store time for successful pings (code 200)
+    // 📖 For errors (429, 500, etc.), store the error code so uptime calculation is correct
+    if (code === '200') {
+      r.pings.push(ms) // 📖 Only successful pings count for uptime
+    } else if (ms === 'TIMEOUT') {
+      r.pings.push('TIMEOUT')
+    } else {
+      r.pings.push(code) // 📖 Store error code (429, 500, 404, etc.)
+    }
     
     // 📖 Update status based on latest ping
     if (code === '200') {
@@ -766,20 +802,32 @@ async function main() {
   // 📖 Initial ping of all models
   const initialPing = Promise.all(results.map(r => pingModel(r)))
   
-  // 📖 Continuous ping loop every 10 seconds
-  const pingInterval = setInterval(() => {
-    results.forEach(r => {
-      pingModel(r).catch(() => {
-        // Individual ping failures don't crash the loop
+  // 📖 Continuous ping loop with dynamic interval (adjustable with W/X keys)
+  const schedulePing = () => {
+    state.pingIntervalObj = setTimeout(async () => {
+      state.lastPingTime = Date.now()
+      
+      results.forEach(r => {
+        pingModel(r).catch(() => {
+          // Individual ping failures don't crash the loop
+        })
       })
-    })
-  }, PING_INTERVAL)
+      
+      // 📖 Schedule next ping with current interval
+      schedulePing()
+    }, state.pingInterval)
+  }
+  
+  // 📖 Start the ping loop
+  state.pingIntervalObj = null
+  schedulePing()
 
   await initialPing
 
   // 📖 Keep interface running forever - user can select anytime or Ctrl+C to exit
-  // 📖 The pings continue running in background every 10 seconds
-  // 📖 User can press Enter at any time to select a model and launch OpenCode
+  // 📖 The pings continue running in background with dynamic interval
+  // 📖 User can press W to decrease interval (faster pings) or X to increase (slower)
+  // 📖 Current interval shown in header: "next ping Xs"
 }
 
 main().catch((err) => {
