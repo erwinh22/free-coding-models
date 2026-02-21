@@ -28,7 +28,6 @@
  *   - `startOpenCode`: Launch OpenCode with selected model
  *   - `main`: Orchestrates CLI flow, wizard, ping loops, animation, and output
  *
- *   The tool uses Node's `fetch` (requires Node 18+), `chalk` for styling,
  *   📦 Dependencies:
  *   - Node.js 18+ (native fetch)
  *   - chalk: Terminal styling and colors
