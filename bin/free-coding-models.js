@@ -167,11 +167,11 @@ const spinCell = (f, o = 0) => chalk.dim.yellow(FRAMES[(f + o) % FRAMES.length].
 
 const TIER_ORDER = ['S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
 const getAvg = r => {
-  // 📖 Calculate average only from numeric pings (successful code 200 responses)
-  // 📖 Exclude timeouts and error codes (429, 500, etc.) which are strings
-  const successfulPings = (r.pings || []).filter(p => typeof p === 'number')
+  // 📖 Calculate average only from successful pings (code 200)
+  // 📖 pings are objects: { ms, code }
+  const successfulPings = (r.pings || []).filter(p => p.code === '200')
   if (successfulPings.length === 0) return Infinity
-  return Math.round(successfulPings.reduce((a, b) => a + b) / successfulPings.length)
+  return Math.round(successfulPings.reduce((a, b) => a + b.ms, 0) / successfulPings.length)
 }
 
 // 📖 Verdict order for sorting
@@ -180,7 +180,7 @@ const VERDICT_ORDER = ['Perfect', 'Normal', 'Slow', 'Very Slow', 'Overloaded', '
 // 📖 Get verdict for a model result
 const getVerdict = (r) => {
   const avg = getAvg(r)
-  const wasUpBefore = r.pings.length > 0 && r.pings.some(p => typeof p === 'number')
+  const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p.code === '200')
   
   // 📖 429 = rate limited = Overloaded
   if (r.httpCode === '429') return 'Overloaded'
@@ -196,10 +196,10 @@ const getVerdict = (r) => {
 }
 
 // 📖 Calculate uptime percentage (successful pings / total pings)
-// 📖 Only count numeric pings (code 200 responses), not error codes or timeouts
+// 📖 Only count code 200 responses
 const getUptime = (r) => {
   if (r.pings.length === 0) return 0
-  const successful = r.pings.filter(p => typeof p === 'number').length
+  const successful = r.pings.filter(p => p.code === '200').length
   return Math.round((successful / r.pings.length) * 100)
 }
 
@@ -222,8 +222,10 @@ const sortResults = (results, sortColumn, sortDirection) => {
         cmp = a.label.localeCompare(b.label)
         break
       case 'ping': {
-        const aPing = a.pings.length > 0 && a.pings[a.pings.length - 1] !== 'TIMEOUT' ? a.pings[a.pings.length - 1] : Infinity
-        const bPing = b.pings.length > 0 && b.pings[b.pings.length - 1] !== 'TIMEOUT' ? b.pings[b.pings.length - 1] : Infinity
+        const aLast = a.pings.length > 0 ? a.pings[a.pings.length - 1] : null
+        const bLast = b.pings.length > 0 ? b.pings[b.pings.length - 1] : null
+        const aPing = aLast?.code === '200' ? aLast.ms : Infinity
+        const bPing = bLast?.code === '200' ? bLast.ms : Infinity
         cmp = aPing - bPing
         break
       }
@@ -344,20 +346,19 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     const source = chalk.green('NVIDIA NIM'.padEnd(W_SOURCE))
     const name = r.label.slice(0, W_MODEL).padEnd(W_MODEL)
 
-    // 📖 Latest ping (just number, no "ms") - build plain text, then colorize
-    // 📖 pings array contains: numbers (success times), 'TIMEOUT', or error codes like '429'
+    // 📖 Latest ping - pings are objects: { ms, code }
+    // 📖 Only show response time for successful pings, "—" for errors (error code is in Status column)
     const latestPing = r.pings.length > 0 ? r.pings[r.pings.length - 1] : null
     let pingCell
-    if (latestPing === null) {
+    if (!latestPing) {
       pingCell = chalk.dim('—'.padEnd(W_PING))
-    } else if (latestPing === 'TIMEOUT') {
-      pingCell = chalk.red('TIMEOUT'.padEnd(W_PING))
-    } else if (typeof latestPing === 'string') {
-      // 📖 Error code (429, 500, etc.) - not a successful ping
-      pingCell = chalk.red(String(latestPing).padEnd(W_PING))
+    } else if (latestPing.code === '200') {
+      // 📖 Success - show response time
+      const str = String(latestPing.ms).padEnd(W_PING)
+      pingCell = latestPing.ms < 500 ? chalk.greenBright(str) : latestPing.ms < 1500 ? chalk.yellow(str) : chalk.red(str)
     } else {
-      const str = String(latestPing).padEnd(W_PING)
-      pingCell = latestPing < 500 ? chalk.greenBright(str) : latestPing < 1500 ? chalk.yellow(str) : chalk.red(str)
+      // 📖 Error or timeout - show "—" (error code is already in Status column)
+      pingCell = chalk.dim('—'.padEnd(W_PING))
     }
 
     // 📖 Avg ping (just number, no "ms")
@@ -371,6 +372,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     }
 
     // 📖 Status column - build plain text with emoji, pad, then colorize
+    // 📖 Different emojis for different error codes
     let statusText, statusColor
     if (r.status === 'pending') {
       statusText = `${FRAMES[frame % FRAMES.length]} wait`
@@ -379,11 +381,21 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       statusText = `✅ UP`
       statusColor = (s) => s
     } else if (r.status === 'timeout') {
-      statusText = `⏱ TIMEOUT`
+      statusText = `⏳ TIMEOUT`
       statusColor = (s) => chalk.yellow(s)
     } else if (r.status === 'down') {
-      const code = (r.httpCode ?? 'ERR').slice(0, 3)
-      statusText = `❌ ${code}`
+      const code = r.httpCode ?? 'ERR'
+      // 📖 Different emojis for different error codes
+      const errorEmojis = {
+        '429': '🔥',  // Rate limited / overloaded
+        '404': '🚫',  // Not found
+        '500': '💥',  // Internal server error
+        '502': '🔌',  // Bad gateway
+        '503': '🔒',  // Service unavailable
+        '504': '⏰',  // Gateway timeout
+      }
+      const emoji = errorEmojis[code] || '❌'
+      statusText = `${emoji} ${code}`
       statusColor = (s) => chalk.red(s)
     } else {
       statusText = '?'
@@ -392,7 +404,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     const status = statusColor(statusText.padEnd(W_STATUS))
 
     // 📖 Verdict column - build plain text with emoji, pad, then colorize
-    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => typeof p === 'number')
+    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p.code === '200')
     let verdictText, verdictColor
     if (r.httpCode === '429') {
       verdictText = '🔥 Overloaded'
@@ -778,15 +790,10 @@ async function main() {
   const pingModel = async (r) => {
     const { code, ms } = await ping(apiKey, r.modelId)
     
-    // 📖 Add ping result to history - only store time for successful pings (code 200)
-    // 📖 For errors (429, 500, etc.), store the error code so uptime calculation is correct
-    if (code === '200') {
-      r.pings.push(ms) // 📖 Only successful pings count for uptime
-    } else if (ms === 'TIMEOUT') {
-      r.pings.push('TIMEOUT')
-    } else {
-      r.pings.push(code) // 📖 Store error code (429, 500, 404, etc.)
-    }
+    // 📖 Store ping result as object with ms and code
+    // 📖 ms = actual response time (even for errors like 429)
+    // 📖 code = HTTP status code ('200', '429', '500', '000' for timeout)
+    r.pings.push({ ms, code })
     
     // 📖 Update status based on latest ping
     if (code === '200') {
