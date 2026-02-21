@@ -224,7 +224,23 @@ npm start -- YOUR_API_KEY
 MIT © [vava](https://github.com/vava-nessa)
 
 ---
-
+ 
 <p align="center">
   <sub>Built with ☕ and 🌹 by <a href="https://github.com/vava-nessa">vava</a></sub>
 </p>
+
+## 🛠 Contributing
+We welcome contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to propose changes, file issues, or submit pull requests. All contributions are subject to the Code of Conduct.
+
+## 📚 FAQ
+**Q:** Do I need a paid NVIDIA account?  
+**A:** No, free accounts have free tier credits, but usage is limited. Check [build.nvidia.com](https://build.nvidia.com) for current quotas and limitations.
+
+**Q:** Can I use this with other providers?  
+**A:** Yes, the tool is designed to be extensible; see the source for examples of customizing endpoints.
+
+**Q:** How accurate are the latency numbers?  
+**A:** They represent average round-trip times measured during testing; actual performance may vary based on network conditions.
+
+## 📧 Support
+For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/nimping

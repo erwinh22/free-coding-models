@@ -3,20 +3,22 @@
  * @file nimping.js
  * @description Live terminal availability checker for NVIDIA NIM LLM models.
  *
- * 📖 How it works:
- *   → First run: wizard prompts for API key and saves to ~/.nimping
- *   → Subsequent runs: uses saved key automatically
- *   → Enters the ALTERNATE SCREEN BUFFER for animation (same technique as vim/htop/less)
- *   → Phase 1: pings all 44 models in parallel via native fetch (Node 18+)
- *   → Phase 2-4: immediately re-pings UP models 3 more times for latency reliability
- *   → Exits alt screen, then prints the final table ONCE to normal stdout
+ * @details
+ *   This CLI tool discovers and benchmarks NVIDIA NIM language models optimized for coding.
+ *   It runs in an alternate screen buffer, pings all models in parallel, re-pings successful ones
+ *   multiple times for reliable latency measurements, and prints a clean final table.
+ *   Features include animated spinner, colored latency cells, top-3 highlighting, and persistent API key storage.
  *
- * 📖 Usage:
- *   nimping
- *   nimping <NVIDIA_API_KEY>
- *   NVIDIA_API_KEY=nvapi-xxx nimping
+ *   Key functions:
+ *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.nimping
+ *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
+ *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
+ *   - `main`: Orchestrates CLI flow, wizard, ping loops, animation, and output
  *
- * @exports (CLI binary)
+ *   The tool uses Node's `fetch` (requires Node 18+), `chalk` for styling,
+ *   and `readline` for interactive key setup.
+ *   Animation frames are defined in `FRAMES` and rendered at `FPS` frames per second.
+ *   Output columns include model tier, name, ping latencies, average latency, and status.
  */
 
 import chalk from 'chalk'

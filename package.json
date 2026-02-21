@@ -47,9 +47,9 @@
     "start": "node bin/nimping.js"
   },
   "dependencies": {
-    "chalk": "^5.4.1"
+    "chalk": "^5.4.1",
+    "nimping": "^0.1.0"
   },
-  "devDependencies": {},
   "engines": {
     "node": ">=18.0.0"
   }
