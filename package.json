@@ -1,6 +1,6 @@
 {
   "name": "nimping",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Find the fastest NVIDIA NIM coding models in seconds — ping 44 free LLM models optimized for code, pick the best one for OpenCode, Cursor, or any AI coding assistant.",
   "keywords": [
     "nvidia",
