@@ -118,7 +118,7 @@ const ALT_CLEAR  = '\x1b[H\x1b[2J'
 
 const NIM_URL      = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const PING_TIMEOUT  = 6_000    // 📖 6s per attempt before abort - models slower than this are unusable for coding
-const PING_INTERVAL = 10_000   // 📖 Ping all models every 10 seconds in continuous mode
+const PING_INTERVAL = 5_000   // 📖 Ping all models every 5 seconds in continuous mode
 
 const FPS          = 12
 const COL_MODEL    = 22
@@ -199,8 +199,9 @@ function renderTable(results, pendingPings, frame, cursor = null) {
 
   const W  = COL_MODEL
   const W_PROVIDER = 12  // 📖 Width for Provider column
-  const W_PING = COL_MS   // 📖 Width for Latest Ping column
-  const W_AVG = COL_MS    // 📖 Width for Avg Ping column
+  const W_PING = 9        // 📖 Width for Ping column (no "ms" suffix)
+  const W_AVG = 9         // 📖 Width for Avg Ping column (no "ms" suffix)
+  const W_SPEED = 13      // 📖 Width for Speed column
   // 📖 col() — right-aligns text in a fixed-width column, no borders, just spaces
   const col = (txt, w) => txt.padStart(w)
 
@@ -214,10 +215,10 @@ function renderTable(results, pendingPings, frame, cursor = null) {
     '',
     // 📖 Header row — same spacing as data rows, dim text
     `  ${chalk.dim(col('#', 3))}  ${chalk.dim('Tier'.padEnd(4))}  ${chalk.dim('Provider'.padEnd(W_PROVIDER))}  ${chalk.dim('Model'.padEnd(W))}  ` +
-      `  ${chalk.dim('Latest'.padStart(W_PING))}  ${chalk.dim('Avg'.padStart(W_AVG))}  ${chalk.dim('Status')}`,
+      `  ${chalk.dim('Ping'.padStart(W_PING))}  ${chalk.dim('Avg'.padStart(W_AVG))}  ${chalk.dim('Status'.padEnd(14))}  ${chalk.dim('Speed')}`,
     // 📖 Thin underline under header using dim dashes
     `  ${chalk.dim('─'.repeat(3))}  ${'─'.repeat(4)}  ${'─'.repeat(W_PROVIDER)}  ${'─'.repeat(W)}  ` +
-      `  ${chalk.dim('─'.repeat(W_PING))}  ${chalk.dim('─'.repeat(W_AVG))}  ${chalk.dim('─'.repeat(9))}`,
+      `  ${chalk.dim('─'.repeat(W_PING))}  ${chalk.dim('─'.repeat(W_AVG))}  ${chalk.dim('─'.repeat(14))}  ${chalk.dim('─'.repeat(W_SPEED))}`,
   ]
 
   for (let i = 0; i < sorted.length; i++) {
@@ -246,48 +247,72 @@ function renderTable(results, pendingPings, frame, cursor = null) {
       }
     }
     const name = (namePrefix + r.label.slice(0, nameWidth)).padEnd(W)
-    let latestCell, avgCell, status
+    let pingCell, avgCell, status, speedCell
 
-    // 📖 Latest ping
+    // 📖 Latest ping (just the number, no "ms")
     const latestPing = r.pings.length > 0 ? r.pings[r.pings.length - 1] : null
     
     if (latestPing === null) {
-      latestCell = chalk.dim('—'.padStart(W_PING))
+      pingCell = chalk.dim('—'.padStart(W_PING))
     } else if (latestPing === 'TIMEOUT') {
-      latestCell = chalk.red('TIMEOUT'.padStart(W_PING))
+      pingCell = chalk.red('TIMEOUT'.padStart(W_PING))
     } else {
-      const latestStr = String(latestPing).padStart(W_PING - 2) + 'ms'
-      latestCell = msCell(latestPing)
+      pingCell = msCell(latestPing)
     }
 
-    // 📖 Avg ping from ALL successful pings (not timeouts)
+    // 📖 Avg ping from ALL successful pings (not timeouts) - same color as latest
     const avg = getAvg(r)
     const successfulPingCount = (r.pings || []).filter(p => p !== null && p !== 'TIMEOUT').length
     
     if (avg !== Infinity) {
-      const avgStr = String(avg).padStart(W_AVG - 2) + 'ms'
-      avgCell = isBest ? chalk.bold.white(avgStr) : chalk.bold.cyanBright(avgStr)
+      avgCell = msCell(avg)  // Same color as ping
     } else {
       avgCell = chalk.dim('—'.padStart(W_AVG))
     }
 
-    // 📖 Status column - show current state with ping count
+    // 📖 Status column - show current state with ping count (fixed width)
     if (r.status === 'pending') {
-      status = chalk.dim.yellow(`${FRAMES[frame % FRAMES.length]} wait`)
+      status = chalk.dim.yellow(`${FRAMES[frame % FRAMES.length]} wait`.padEnd(14))
     } else if (r.status === 'up') {
-      status = chalk.bold.greenBright('✅') + chalk.dim(` UP (${successfulPingCount})`)
+      const statusText = ` UP (${successfulPingCount})`
+      status = chalk.bold.greenBright('✅') + chalk.dim(statusText.padEnd(11))
     } else if (r.status === 'timeout') {
-      status = chalk.bold.yellow('⏱') + chalk.dim(` TIMEOUT (${successfulPingCount})`)
+      const statusText = ` TIMEOUT (${successfulPingCount})`
+      status = chalk.bold.yellow('⏱') + chalk.dim(statusText.padEnd(10))
     } else if (r.status === 'down') {
       const code = (r.httpCode ?? 'ERR').slice(0, 3)
-      status = chalk.bold.red('❌') + chalk.red(` ${code}`)
+      status = chalk.bold.red('❌') + chalk.red(` ${code}`.padEnd(11))
     } else {
-      status = chalk.dim('?')
+      status = chalk.dim('?'.padEnd(14))
+    }
+
+    // 📖 Speed column - recommendations based on avg ping with emojis
+    // 📖 If model was UP before but now timeout/down, mark as unstable
+    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p !== null && p !== 'TIMEOUT')
+    
+    if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) {
+      speedCell = chalk.magenta('⚠️ Unstable'.padEnd(W_SPEED))
+    } else if (r.status === 'timeout' || r.status === 'down') {
+      speedCell = chalk.dim('👻 Not Active'.padEnd(W_SPEED))
+    } else if (avg === Infinity) {
+      speedCell = chalk.dim('⏳ Pending'.padEnd(W_SPEED))
+    } else if (avg < 400) {
+      speedCell = chalk.greenBright('🚀 Perfect'.padEnd(W_SPEED))
+    } else if (avg < 1000) {
+      speedCell = chalk.cyan('✅ Normal'.padEnd(W_SPEED))
+    } else if (avg < 3000) {
+      speedCell = chalk.yellow('🐢 Slow'.padEnd(W_SPEED))
+    } else if (avg < 5000) {
+      speedCell = chalk.red('🐌 Very Slow'.padEnd(W_SPEED))
+    } else if (avg < 10000) {
+      speedCell = chalk.red.bold('⚠️ Unstable'.padEnd(W_SPEED))
+    } else {
+      speedCell = chalk.red.bold('💀 Unusable'.padEnd(W_SPEED))
     }
 
     // 📖 Dark green background for best models in each tier
     // 📖 Dark magenta background for cursor selection (more readable)
-    const row = `  ${num}  ${tier}  ${provider}  ${name}  ${latestCell}  ${avgCell}  ${status}`
+    const row = `  ${num}  ${tier}  ${provider}  ${name}  ${pingCell}  ${avgCell}  ${status}  ${speedCell}`
     
     if (isCursor) {
       lines.push(chalk.bgRgb(139, 0, 139)(row))  // Dark magenta (more readable)
