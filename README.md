@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/npm/v/nimping?color=76b900&label=npm&logo=npm" alt="npm version">
-  <img src="https://img.shields.io/node/v/nimping?color=76b900&logo=node.js" alt="node version">
-  <img src="https://img.shields.io/npm/l/nimping?color=76b900" alt="license">
+  <img src="https://img.shields.io/npm/v/free-ai-opencode?color=76b900&label=npm&logo=npm" alt="npm version">
+  <img src="https://img.shields.io/node/v/free-ai-opencode?color=76b900&logo=node.js" alt="node version">
+  <img src="https://img.shields.io/npm/l/free-ai-opencode?color=76b900" alt="license">
   <img src="https://img.shields.io/badge/models-44-76b900?logo=nvidia" alt="models count">
 </p>
 
-<h1 align="center">⚡ nimping</h1>
+<h1 align="center">⚡ free-ai-opencode</h1>
 
 <p align="center">
   <strong>Find the fastest NVIDIA NIM coding models in seconds</strong><br>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="demo.gif" alt="nimping demo" width="100%">
+  <img src="demo.gif" alt="free-ai-opencode demo" width="100%">
 </p>
 
 <p align="center">
@@ -42,18 +42,18 @@
 
 ```bash
 # npm (global install — recommended)
-npm install -g nimping
+npm install -g free-ai-opencode
 
 # pnpm
-pnpm add -g nimping
+pnpm add -g free-ai-opencode
 
 # bun
-bun add -g nimping
+bun add -g free-ai-opencode
 
 # Or use directly with npx/pnpx/bunx
-npx nimping YOUR_API_KEY
-pnpx nimping YOUR_API_KEY
-bunx nimping YOUR_API_KEY
+npx free-ai-opencode YOUR_API_KEY
+pnpx free-ai-opencode YOUR_API_KEY
+bunx free-ai-opencode YOUR_API_KEY
 ```
 
 **Requirements:** Node.js 18+
@@ -64,7 +64,7 @@ bunx nimping YOUR_API_KEY
 
 ```bash
 # Just run it — will prompt for API key if not set
-nimping
+free-ai-opencode
 ```
 
 Setup wizard:
@@ -72,25 +72,25 @@ Setup wizard:
 ```
   🔑 Setup your NVIDIA API key
   📝 Get a free key at: https://build.nvidia.com
-  💾 Key will be saved to ~/.nimping
+  💾 Key will be saved to ~/.free-ai-opencode
 
   Enter your API key: nvapi-xxxx-xxxx
 
-  ✅ API key saved to ~/.nimping
+  ✅ API key saved to ~/.free-ai-opencode
 ```
 
 ### Other ways to provide the key
 
 ```bash
 # Pass directly
-nimping nvapi-xxxx-your-key-here
+free-ai-opencode nvapi-xxxx-your-key-here
 
 # Use environment variable
-NVIDIA_API_KEY=nvapi-xxx nimping
+NVIDIA_API_KEY=nvapi-xxx free-ai-opencode
 
 # Or add to your shell profile
 export NVIDIA_API_KEY=nvapi-xxxx-your-key-here
-nimping
+free-ai-opencode
 ```
 
 ### Get your free API key
@@ -98,7 +98,7 @@ nimping
 1. **Create NVIDIA Account** — Sign up at [build.nvidia.com](https://build.nvidia.com) with your email
 2. **Verify** — Confirm email, set privacy options, create NGC account, verify phone
 3. **Generate Key** — Go to Profile → API Keys → Generate API Key
-4. **Name it** — e.g., "nimping" or "OpenCode-NIM"
+4. **Name it** — e.g., "free-ai-opencode" or "OpenCode-NIM"
 5. **Set expiration** — Choose "Never" for convenience
 6. **Copy securely** — Key is shown only once!
 
@@ -132,7 +132,7 @@ Want to use NVIDIA NIM models in [OpenCode](https://github.com/opencode-ai/openc
 
 ### 1. Find your model
 
-Run `nimping` to see which models are available and fast. Pick one that suits you (e.g., `meta/llama-3.1-70b-instruct`, `deepseek-ai/deepseek-v3.2`, `moonshotai/kimi-k2-instruct`).
+Run `free-ai-opencode` to see which models are available and fast. Pick one that suits you (e.g., `meta/llama-3.1-70b-instruct`, `deepseek-ai/deepseek-v3.2`, `moonshotai/kimi-k2-instruct`).
 
 ### 2. Configure OpenCode
 
@@ -211,8 +211,8 @@ Run `/models` in OpenCode and select **NVIDIA NIM > kimi** (or your chosen model
 ## 🔧 Development
 
 ```bash
-git clone https://github.com/vava-nessa/nimping
-cd nimping
+git clone https://github.com/vava-nessa/free-ai-opencode
+cd free-ai-opencode
 npm install
 npm start -- YOUR_API_KEY
 ```
@@ -239,4 +239,4 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 **A:** They represent average round-trip times measured during testing; actual performance may vary based on network conditions.
 
 ## 📧 Support
-For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/nimping
+For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/free-ai-opencode

@@ -1,5 +1,5 @@
 {
-  "name": "nimping",
+  "name": "free-ai-opencode",
   "version": "0.1.1",
   "description": "Find the fastest NVIDIA NIM coding models in seconds — ping 44 free LLM models optimized for code, pick the best one for OpenCode, Cursor, or any AI coding assistant.",
   "keywords": [
@@ -23,20 +23,20 @@
     "openai",
     "api"
   ],
-  "homepage": "https://github.com/vava-nessa/nimping#readme",
+  "homepage": "https://github.com/vava-nessa/free-ai-opencode#readme",
   "bugs": {
-    "url": "https://github.com/vava-nessa/nimping/issues"
+    "url": "https://github.com/vava-nessa/free-ai-opencode/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vava-nessa/nimping.git"
+    "url": "git+https://github.com/vava-nessa/free-ai-opencode.git"
   },
   "license": "MIT",
   "author": "vava",
   "type": "module",
-  "main": "bin/nimping.js",
+  "main": "bin/free-ai-opencode.js",
   "bin": {
-    "nimping": "./bin/nimping.js"
+    "free-ai-opencode": "./bin/free-ai-opencode.js"
   },
   "files": [
     "bin/",
@@ -44,11 +44,10 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node bin/nimping.js"
+    "start": "node bin/free-ai-opencode.js"
   },
   "dependencies": {
-    "chalk": "^5.4.1",
-    "nimping": "^0.1.0"
+    "chalk": "^5.4.1"
   },
   "engines": {
     "node": ">=18.0.0"

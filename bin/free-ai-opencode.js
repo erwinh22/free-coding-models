@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @file nimping.js
+ * @file free-ai-opencode.js
  * @description Live terminal availability checker for NVIDIA NIM LLM models.
  *
  * @details
@@ -10,7 +10,7 @@
  *   Features include animated spinner, colored latency cells, top-3 highlighting, and persistent API key storage.
  *
  *   Key functions:
- *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.nimping
+ *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.free-ai-opencode
  *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
  *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
  *   - `main`: Orchestrates CLI flow, wizard, ping loops, animation, and output
@@ -31,7 +31,7 @@ const require = createRequire(import.meta.url)
 const readline = require('readline')
 
 // ─── Config path ──────────────────────────────────────────────────────────────
-const CONFIG_PATH = join(homedir(), '.nimping')
+const CONFIG_PATH = join(homedir(), '.free-ai-opencode')
 
 function loadApiKey() {
   try {
@@ -53,7 +53,7 @@ async function promptApiKey() {
   console.log()
   console.log(chalk.dim('  🔑 Setup your NVIDIA API key'))
   console.log(chalk.dim('  📝 Get a free key at: ') + chalk.cyanBright('https://build.nvidia.com'))
-  console.log(chalk.dim('  💾 Key will be saved to ~/.nimping'))
+  console.log(chalk.dim('  💾 Key will be saved to ~/.free-ai-opencode'))
   console.log()
 
   const rl = readline.createInterface({
@@ -68,7 +68,7 @@ async function promptApiKey() {
       if (key) {
         saveApiKey(key)
         console.log()
-        console.log(chalk.green('  ✅ API key saved to ~/.nimping'))
+        console.log(chalk.green('  ✅ API key saved to ~/.free-ai-opencode'))
         console.log()
       }
       resolve(key || null)
@@ -480,7 +480,7 @@ async function main() {
     if (!apiKey) {
       console.log()
       console.log(chalk.red('  ✖ No API key provided.'))
-      console.log(chalk.dim('  Run `nimping` again or set NVIDIA_API_KEY env var.'))
+      console.log(chalk.dim('  Run `free-ai-opencode` again or set NVIDIA_API_KEY env var.'))
       console.log()
       process.exit(1)
     }
