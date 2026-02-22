@@ -603,7 +603,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Tier  •  Z Mode  •  Ctrl+C Exit`))
   lines.push('')
-  lines.push(chalk.dim('  Made with ') + '💖' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '💬 ' + '\x1b]8;;https://discord.gg/U4vz7mYQ\x1b\\Join our Discord!\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
+  lines.push(chalk.dim('  Made with ') + '💖' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '💬 ' + '\x1b]8;;https://discord.gg/WKA3TwYVuZ\x1b\\Join our Discord!\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
   lines.push('')
   // 📖 Append \x1b[K (erase to EOL) to each line so leftover chars from previous
   // 📖 frames are cleared. Then pad with blank cleared lines to fill the terminal,

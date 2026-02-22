@@ -8,7 +8,7 @@
 <h1 align="center">free-coding-models</h1>
 
 <p align="center">
-  <strong>Want to contribute or discuss the project?</strong> Join our <a href="https://discord.gg/U4vz7mYQ">Discord community</a>!
+  <strong>Want to contribute or discuss the project?</strong> Join our <a href="https://discord.gg/WKA3TwYVuZ">Discord community</a>!
 </p>
 
 <p align="center">
@@ -507,4 +507,4 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 **A:** No — `free-coding-models` configures OpenClaw to use NVIDIA NIM's remote API, so models run on NVIDIA's infrastructure. No GPU or local setup required.
 
 ## 📧 Support
-For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/QnR8xq9p
+For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/WKA3TwYVuZ

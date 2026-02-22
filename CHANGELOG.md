@@ -2,6 +2,13 @@
 
 ---
 
+## 0.1.29 — 2026-02-22
+
+### Fixed
+- **Discord link correction**: Updated all Discord invite URLs to use permanent link https://discord.gg/WKA3TwYVuZ
+
+---
+
 ## 0.1.28 — 2026-02-22
 
 ### Added
