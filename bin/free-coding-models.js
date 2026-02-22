@@ -1105,37 +1105,22 @@ async function main() {
   process.on('SIGINT',  () => exit(0))
   process.on('SIGTERM', () => exit(0))
 
-  // 📖 Apply tier filter to results based on current state.tierFilter
-  // 📖 Preserves existing ping history when filtering
+  // 📖 Apply tier filter based on current state.tierFilter
+  // 📖 This preserves all ping history by merging with existing results
   function applyTierFilter() {
-    const allModels = MODELS.map(([modelId, label, tier], i) => ({
-      idx: i + 1, modelId, label, tier,
-      status: 'pending',
-      pings: [],
-      httpCode: null,
-    }))
+    const modelsToShow = !state.tierFilter 
+      ? MODELS 
+      : MODELS.filter(([, , tier]) => TIER_LETTER_MAP[state.tierFilter].includes(tier))
     
-    if (!state.tierFilter) {
-      return allModels
-    }
-    
-    // 📖 Filter models by tier and preserve existing ping history
-    const filteredModels = allModels.filter(model => 
-      TIER_LETTER_MAP[state.tierFilter].includes(model.tier)
-    )
-    
-    // 📖 Try to preserve existing ping data from current results
-    return filteredModels.map(model => {
-      const existingResult = state.results.find(r => r.modelId === model.modelId)
-      if (existingResult) {
-        return {
-          ...model,
-          status: existingResult.status,
-          pings: [...existingResult.pings],
-          httpCode: existingResult.httpCode
-        }
+    // 📖 Build results array, preserving existing ping data
+    return modelsToShow.map(([modelId, label, tier], i) => {
+      const existingResult = state.results.find(r => r.modelId === modelId)
+      return existingResult || {
+        idx: i + 1, modelId, label, tier,
+        status: 'pending',
+        pings: [],
+        httpCode: null,
       }
-      return model
     })
   }
 
