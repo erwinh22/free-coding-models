@@ -755,35 +755,34 @@ async function startOpenClaw(model, apiKey) {
     console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
   }
 
-  // 📖 Ensure providers section exists with nvidia NIM block
-  // 📖 Only injects if not already present - we don't overwrite existing provider config
-  if (!config.providers) config.providers = {}
-  if (!config.providers.nvidia) {
-    config.providers.nvidia = {
+  // 📖 Ensure models.providers section exists with nvidia NIM block.
+  // 📖 Per OpenClaw docs (docs.openclaw.ai/providers/nvidia), providers MUST be nested under
+  // 📖 "models.providers", NOT at the config root. Root-level "providers" is ignored by OpenClaw.
+  // 📖 API key is NOT stored in the provider block — it's read from env var NVIDIA_API_KEY.
+  // 📖 If needed, it can be stored under the root "env" key: { env: { NVIDIA_API_KEY: "nvapi-..." } }
+  if (!config.models) config.models = {}
+  if (!config.models.providers) config.models.providers = {}
+  if (!config.models.providers.nvidia) {
+    config.models.providers.nvidia = {
       baseUrl: 'https://integrate.api.nvidia.com/v1',
-      // 📖 Store key reference as env var name — avoid hardcoding key in config file
-      apiKey: apiKey || process.env.NVIDIA_API_KEY || 'YOUR_NVIDIA_API_KEY',
       api: 'openai-completions',
-      models: [],
     }
-    console.log(chalk.dim('  ➕ Added nvidia provider block to OpenClaw config'))
+    console.log(chalk.dim('  ➕ Added nvidia provider block to OpenClaw config (models.providers.nvidia)'))
   }
 
-  // 📖 Ensure the chosen model is in the nvidia models array
-  const modelsArr = config.providers.nvidia.models
-  const modelEntry = {
-    id: model.modelId,
-    name: model.label,
-    contextWindow: 128000,
-    maxTokens: 8192,
-  }
-  const alreadyListed = modelsArr.some(m => m.id === model.modelId)
-  if (!alreadyListed) {
-    modelsArr.push(modelEntry)
-    console.log(chalk.dim(`  ➕ Added ${model.label} to nvidia models list`))
+  // 📖 Store API key in the root "env" section so OpenClaw can read it as NVIDIA_API_KEY env var.
+  // 📖 Only writes if not already set to avoid overwriting an existing key.
+  const resolvedKey = apiKey || process.env.NVIDIA_API_KEY
+  if (resolvedKey) {
+    if (!config.env) config.env = {}
+    if (!config.env.NVIDIA_API_KEY) {
+      config.env.NVIDIA_API_KEY = resolvedKey
+      console.log(chalk.dim('  🔑 Stored NVIDIA_API_KEY in config env section'))
+    }
   }
 
-  // 📖 Set as the default primary model for all agents
+  // 📖 Set as the default primary model for all agents.
+  // 📖 Format: "provider/model-id" — e.g. "nvidia/deepseek-ai/deepseek-v3.2"
   if (!config.agents) config.agents = {}
   if (!config.agents.defaults) config.agents.defaults = {}
   if (!config.agents.defaults.model) config.agents.defaults.model = {}
@@ -795,8 +794,12 @@ async function startOpenClaw(model, apiKey) {
   console.log()
   console.log(chalk.dim('  📄 Config updated: ' + OPENCLAW_CONFIG))
   console.log()
-  console.log(chalk.dim('  💡 Restart OpenClaw for changes to take effect:'))
-  console.log(chalk.dim('     openclaw restart') + chalk.dim('  or  ') + chalk.dim('openclaw models set nvidia/' + model.modelId))
+  // 📖 "openclaw restart" does NOT exist. The gateway auto-reloads on config file changes.
+  // 📖 To apply manually: use "openclaw models set" or "openclaw configure"
+  // 📖 See: https://docs.openclaw.ai/gateway/configuration
+  console.log(chalk.dim('  💡 OpenClaw will reload config automatically (gateway.reload.mode).'))
+  console.log(chalk.dim('     To apply manually: openclaw models set nvidia/' + model.modelId))
+  console.log(chalk.dim('     Or run the setup wizard: openclaw configure'))
   console.log()
 }
 

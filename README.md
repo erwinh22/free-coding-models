@@ -288,20 +288,16 @@ Or run without flags and choose **OpenClaw** from the startup menu.
 
 ```json
 {
-  "providers": {
-    "nvidia": {
-      "baseUrl": "https://integrate.api.nvidia.com/v1",
-      "apiKey": "nvapi-xxxx-your-key",
-      "api": "openai-completions",
-      "models": [
-        {
-          "id": "deepseek-ai/deepseek-v3.2",
-          "name": "DeepSeek V3.2",
-          "contextWindow": 128000,
-          "maxTokens": 8192
-        }
-      ]
+  "models": {
+    "providers": {
+      "nvidia": {
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "api": "openai-completions"
+      }
     }
+  },
+  "env": {
+    "NVIDIA_API_KEY": "nvapi-xxxx-your-key"
   },
   "agents": {
     "defaults": {
@@ -313,15 +309,21 @@ Or run without flags and choose **OpenClaw** from the startup menu.
 }
 ```
 
+> ⚠️ **Note:** `providers` must be nested under `models.providers` — not at the config root. A root-level `providers` key is ignored by OpenClaw.
+
 ### After updating OpenClaw config
 
-Restart OpenClaw or run the CLI command to apply the new model:
+OpenClaw's gateway **auto-reloads** config file changes (depending on `gateway.reload.mode`). To apply manually:
 
 ```bash
-openclaw restart
-# or
+# Apply via CLI
 openclaw models set nvidia/deepseek-ai/deepseek-v3.2
+
+# Or re-run the interactive setup wizard
+openclaw configure
 ```
+
+> ⚠️ **Note:** `openclaw restart` does **not** exist as a CLI command. Kill and relaunch the process manually if you need a full restart.
 
 > 💡 **Why use remote NIM models with OpenClaw?** NVIDIA NIM serves models via a fast API — no local GPU required, no VRAM limits, free credits for developers. You get frontier-class coding models (DeepSeek V3, Kimi K2, Qwen3 Coder) without downloading anything.
 
@@ -390,6 +392,21 @@ cd free-coding-models
 npm install
 npm start -- YOUR_API_KEY
 ```
+
+### Releasing a new version
+
+1. Make your changes and commit them with a descriptive message
+2. Update `CHANGELOG.md` with the new version entry
+3. Bump `"version"` in `package.json` (e.g. `0.1.3` → `0.1.4`)
+4. Commit with **just the version number** as the message:
+
+```bash
+git add .
+git commit -m "0.1.4"
+git push
+```
+
+The GitHub Actions workflow automatically publishes to npm on every push to `main`.
 
 ---
 
