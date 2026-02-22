@@ -4,6 +4,8 @@
 
 ## 0.1.9 — 2026-02-22
 
+### Fixed
+- **OpenCode spawn ENOENT**: Use `shell: true` when spawning `opencode` so the command resolves correctly on Windows (`.cmd`/`.bat` wrappers). Added friendly error message when `opencode` is not installed.
 ### Added
 - Update available warning: red message shown above selection menu when a new npm version exists
 - "Update now" menu choice in startup mode selection to install the latest version
