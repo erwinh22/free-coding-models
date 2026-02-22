@@ -2,6 +2,14 @@
 
 ---
 
+## 0.1.26 — 2026-02-22
+
+### Changed
+- **Footer improvements**: Replaced "Repository GitHub" with "GitHub", "love" with 💖 emoji, and simplified Discord text
+- **README enhancement**: Added GitHub link section below Discord invite
+
+---
+
 ## 0.1.25 — 2026-02-22
 
 ### Added

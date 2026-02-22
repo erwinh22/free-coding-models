@@ -12,6 +12,10 @@
 </p>
 
 <p align="center">
+  <strong>📂 GitHub:</strong> <a href="https://github.com/vava-nessa/free-coding-models">vava-nessa/free-coding-models</a>
+</p>
+
+<p align="center">
 
 ```
 1. Create a free API key on NVIDIA → https://build.nvidia.com
