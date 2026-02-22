@@ -196,7 +196,7 @@ async function promptModeSelection(latestVersion) {
         console.log(chalk.red(`  ⚠ New version available (v${latestVersion}), please run npm i -g free-coding-models to install`))
         console.log()
       }
-      console.log(chalk.bold('  ⚡ Free Coding Models') + chalk.dim(' — Choose your tool'))
+      console.log(chalk.bold('  ⚡ Free Coding Models') + chalk.dim(` v${LOCAL_VERSION} — Choose your tool`))
       console.log()
       console.log(chalk.yellow.bold('  ⚠️  Warning: ') + chalk.yellow('Small terminals may break the layout — maximize your window for best results!'))
       console.log()
@@ -344,7 +344,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
   const lines = [
     '',
-    `  ${chalk.bold('⚡ Free Coding Models')}${modeBadge}   ` +
+    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
       chalk.yellow(`⏱ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
@@ -529,6 +529,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     ? chalk.rgb(255, 100, 50)('Enter→SetOpenClaw')
     : chalk.rgb(0, 200, 255)('Enter→OpenCode')
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  Ctrl+C Exit`))
+  lines.push('')
+  lines.push(chalk.dim('  made with ') + '🩷' + chalk.dim(' by vava-nessa  •  ') + chalk.dim.underline('https://github.com/vava-nessa/free-coding-models'))
   lines.push('')
   return lines.join('\n')
 }
