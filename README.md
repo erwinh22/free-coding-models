@@ -5,7 +5,17 @@
   <img src="https://img.shields.io/badge/models-44-76b900?logo=nvidia" alt="models count">
 </p>
 
-<h1 align="center">⚡ Free Coding Models</h1>
+<h1 align="center">free-coding-models</h1>
+
+<p align="center">
+
+```
+1. Create a free API key on NVIDIA → https://build.nvidia.com
+2. npm i -g free-coding-models
+3. free-coding-models
+```
+
+</p>
 
 <p align="center">
   <strong>Find the fastest coding LLM models in seconds</strong><br>
