@@ -663,7 +663,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : mode === 'opencode-desktop'
       ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Tier  •  Z Mode  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/Y/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Filter tier  •  Z Mode  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '🫂 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/WKA3TwYVuZ\x1b\\Join our Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
   lines.push('')
@@ -1318,9 +1318,10 @@ async function main() {
   const onKeyPress = async (str, key) => {
     if (!key) return
 
-    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, N=context, H=health, V=verdict, U=uptime
+    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, N=context, H=health, V=verdict, U=uptime
+    // 📖 T is reserved for tier filter cycling — tier sort moved to Y
     const sortKeys = {
-      'r': 'rank', 't': 'tier', 'o': 'origin', 'm': 'model',
+      'r': 'rank', 'y': 'tier', 'o': 'origin', 'm': 'model',
       'l': 'ping', 'a': 'avg', 's': 'swe', 'n': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
