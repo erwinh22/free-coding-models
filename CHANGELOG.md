@@ -2,6 +2,13 @@
 
 ---
 
+## 0.1.28 — 2026-02-22
+
+### Added
+- **Footer emojis**: Added 💬 emoji before Discord link and ⭐ emoji before GitHub link for better visual appeal
+
+---
+
 ## 0.1.27 — 2026-02-22
 
 ### Changed
