@@ -266,10 +266,15 @@ async function promptUpdateNotification(latestVersion) {
 // ─── Alternate screen control ─────────────────────────────────────────────────
 // 📖 \x1b[?1049h = enter alt screen  \x1b[?1049l = leave alt screen
 // 📖 \x1b[?25l   = hide cursor       \x1b[?25h   = show cursor
-// 📖 \x1b[H      = cursor to top     \x1b[2J     = clear screen
-const ALT_ENTER  = '\x1b[?1049h\x1b[?25l'
-const ALT_LEAVE  = '\x1b[?1049l\x1b[?25h'
-const ALT_CLEAR  = '\x1b[H\x1b[2J'
+// 📖 \x1b[H      = cursor to top
+// 📖 NOTE: We avoid \x1b[2J (clear screen) because Ghostty scrolls cleared
+// 📖 content into the scrollback on the alt screen, pushing the header off-screen.
+// 📖 Instead we overwrite in place: cursor home, then \x1b[K (erase to EOL) per line.
+// 📖 \x1b[?7l disables auto-wrap so wide rows clip at the right edge instead of
+// 📖 wrapping to the next line (which would double the row height and overflow).
+const ALT_ENTER  = '\x1b[?1049h\x1b[?25l\x1b[?7l'
+const ALT_LEAVE  = '\x1b[?7h\x1b[?1049l\x1b[?25h'
+const ALT_HOME   = '\x1b[H'
 
 // ─── API Configuration ───────────────────────────────────────────────────────────
 // 📖 Models are now loaded from sources.js to support multiple providers
@@ -321,11 +326,31 @@ const spinCell = (f, o = 0) => chalk.dim.yellow(FRAMES[(f + o) % FRAMES.length].
 // 📖 Core logic functions (getAvg, getVerdict, getUptime, sortResults, etc.)
 // 📖 are imported from lib/utils.js for testability
 
+// ─── Viewport calculation ────────────────────────────────────────────────────
+// 📖 Computes the visible slice of model rows that fits in the terminal.
+// 📖 Fixed lines: 5 header + 5 footer = 10 lines always consumed.
+// 📖 Header: empty, title, empty, column headers, separator (5)
+// 📖 Footer: empty, hints, empty, credit, empty (5)
+// 📖 When scroll indicators are needed, they each consume 1 line from the model budget.
+function calculateViewport(terminalRows, scrollOffset, totalModels) {
+  if (terminalRows <= 0) return { startIdx: 0, endIdx: totalModels, hasAbove: false, hasBelow: false }
+  let maxSlots = terminalRows - 10  // 5 header + 5 footer
+  if (maxSlots < 1) maxSlots = 1
+  if (totalModels <= maxSlots) return { startIdx: 0, endIdx: totalModels, hasAbove: false, hasBelow: false }
+
+  const hasAbove = scrollOffset > 0
+  const hasBelow = scrollOffset + maxSlots - (hasAbove ? 1 : 0) < totalModels
+  // Recalculate with indicator lines accounted for
+  const modelSlots = maxSlots - (hasAbove ? 1 : 0) - (hasBelow ? 1 : 0)
+  const endIdx = Math.min(scrollOffset + modelSlots, totalModels)
+  return { startIdx: scrollOffset, endIdx, hasAbove, hasBelow }
+}
+
 // 📖 renderTable: mode param controls footer hint text (opencode vs openclaw)
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilter = null) {
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilter = null, scrollOffset = 0, terminalRows = 0) {
   // 📖 Filter out hidden models for display
   const visibleResults = results.filter(r => !r.hidden)
-  
+
   const up      = visibleResults.filter(r => r.status === 'up').length
   const down    = visibleResults.filter(r => r.status === 'down').length
   const timeout = visibleResults.filter(r => r.status === 'timeout').length
@@ -429,7 +454,14 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     chalk.dim('─'.repeat(W_UPTIME))
   )
 
-  for (let i = 0; i < sorted.length; i++) {
+  // 📖 Viewport clipping: only render models that fit on screen
+  const vp = calculateViewport(terminalRows, scrollOffset, sorted.length)
+
+  if (vp.hasAbove) {
+    lines.push(chalk.dim(`  ... ${vp.startIdx} more above ...`))
+  }
+
+  for (let i = vp.startIdx; i < vp.endIdx; i++) {
     const r = sorted[i]
     const tierFn = TIER_COLOR[r.tier] ?? (t => chalk.white(t))
 
@@ -555,6 +587,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     }
   }
 
+  if (vp.hasBelow) {
+    lines.push(chalk.dim(`  ... ${sorted.length - vp.endIdx} more below ...`))
+  }
+
   lines.push('')
   const intervalSec = Math.round(pingInterval / 1000)
 
@@ -568,7 +604,14 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   lines.push('')
   lines.push(chalk.dim('  made with ') + '🩷' + chalk.dim(' by vava-nessa  •  ') + chalk.dim.underline('https://github.com/vava-nessa/free-coding-models'))
   lines.push('')
-  return lines.join('\n')
+  // 📖 Append \x1b[K (erase to EOL) to each line so leftover chars from previous
+  // 📖 frames are cleared. Then pad with blank cleared lines to fill the terminal,
+  // 📖 preventing stale content from lingering at the bottom after resize.
+  const EL = '\x1b[K'
+  const cleared = lines.map(l => l + EL)
+  const remaining = terminalRows > 0 ? Math.max(0, terminalRows - cleared.length) : 0
+  for (let i = 0; i < remaining; i++) cleared.push(EL)
+  return cleared.join('\n')
 }
 
 // ─── HTTP ping ────────────────────────────────────────────────────────────────
@@ -1030,6 +1073,31 @@ async function main() {
 
   // 📖 No initial filters - all models visible by default
 
+  // 📖 Clamp scrollOffset so cursor is always within the visible viewport window.
+  // 📖 Called after every cursor move, sort change, and terminal resize.
+  const adjustScrollOffset = (st) => {
+    const total = st.results.length
+    let maxSlots = st.terminalRows - 10  // 5 header + 5 footer
+    if (maxSlots < 1) maxSlots = 1
+    if (total <= maxSlots) { st.scrollOffset = 0; return }
+    // Ensure cursor is not above the visible window
+    if (st.cursor < st.scrollOffset) {
+      st.scrollOffset = st.cursor
+    }
+    // Ensure cursor is not below the visible window
+    // Account for indicator lines eating into model slots
+    const hasAbove = st.scrollOffset > 0
+    const tentativeBelow = st.scrollOffset + maxSlots - (hasAbove ? 1 : 0) < total
+    const modelSlots = maxSlots - (hasAbove ? 1 : 0) - (tentativeBelow ? 1 : 0)
+    if (st.cursor >= st.scrollOffset + modelSlots) {
+      st.scrollOffset = st.cursor - modelSlots + 1
+    }
+    // Final clamp
+    const maxOffset = Math.max(0, total - maxSlots)
+    if (st.scrollOffset > maxOffset) st.scrollOffset = maxOffset
+    if (st.scrollOffset < 0) st.scrollOffset = 0
+  }
+
   // 📖 Add interactive selection state - cursor index and user's choice
   // 📖 sortColumn: 'rank'|'tier'|'origin'|'model'|'ping'|'avg'|'status'|'verdict'|'uptime'
   // 📖 sortDirection: 'asc' (default) or 'desc'
@@ -1046,7 +1114,15 @@ async function main() {
     pingInterval: PING_INTERVAL,  // 📖 Track current interval for W/X keys
     lastPingTime: Date.now(),     // 📖 Track when last ping cycle started
     mode,                         // 📖 'opencode' or 'openclaw' — controls Enter action
+    scrollOffset: 0,              // 📖 First visible model index in viewport
+    terminalRows: process.stdout.rows || 24,  // 📖 Current terminal height
   }
+
+  // 📖 Re-clamp viewport on terminal resize
+  process.stdout.on('resize', () => {
+    state.terminalRows = process.stdout.rows || 24
+    adjustScrollOffset(state)
+  })
 
   // 📖 Enter alternate screen — animation runs here, zero scrollback pollution
   process.stdout.write(ALT_ENTER)
@@ -1096,6 +1172,7 @@ async function main() {
         state.sortColumn = col
         state.sortDirection = 'asc'
       }
+      adjustScrollOffset(state)
       return
     }
 
@@ -1126,6 +1203,7 @@ async function main() {
     if (key.name === 'up') {
       if (state.cursor > 0) {
         state.cursor--
+        adjustScrollOffset(state)
       }
       return
     }
@@ -1133,6 +1211,7 @@ async function main() {
     if (key.name === 'down') {
       if (state.cursor < results.length - 1) {
         state.cursor++
+        adjustScrollOffset(state)
       }
       return
     }
@@ -1191,10 +1270,10 @@ async function main() {
   // 📖 Animation loop: clear alt screen + redraw table at FPS with cursor
   const ticker = setInterval(() => {
     state.frame++
-  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, null))
+    process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, null, state.scrollOffset, state.terminalRows))
   }, Math.round(1000 / FPS))
 
-  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, null))
+  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, null, state.scrollOffset, state.terminalRows))
 
   // ── Continuous ping loop — ping all models every N seconds forever ──────────
 
