@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/npm/v/free-coding-models?color=76b900&label=npm&logo=npm" alt="npm version">
   <img src="https://img.shields.io/node/v/free-coding-models?color=76b900&logo=node.js" alt="node version">
   <img src="https://img.shields.io/npm/l/free-coding-models?color=76b900" alt="license">
-  <img src="https://img.shields.io/badge/models-44-76b900?logo=nvidia" alt="models count">
+  <img src="https://img.shields.io/badge/nvidia%20nim%20models-44-76b900?logo=nvidia" alt="models count">
 </p>
 
 <h1 align="center">free-coding-models</h1>
@@ -100,8 +100,11 @@ bunx free-coding-models YOUR_API_KEY
 # Just run it — shows a startup menu to pick OpenCode or OpenClaw, prompts for API key if not set
 free-coding-models
 
-# Explicitly target OpenCode (current default behavior — TUI + Enter launches OpenCode)
+# Explicitly target OpenCode CLI (TUI + Enter launches OpenCode CLI)
 free-coding-models --opencode
+
+# Explicitly target OpenCode Desktop (TUI + Enter sets model & opens Desktop app)
+free-coding-models --opencode-desktop
 
 # Explicitly target OpenClaw (TUI + Enter sets model as default in OpenClaw)
 free-coding-models --openclaw
@@ -130,8 +133,11 @@ When you run `free-coding-models` without `--opencode` or `--openclaw`, you get 
 ```
   ⚡ Free Coding Models — Choose your tool
 
-  ❯ 💻 OpenCode
-       Press Enter on a model → launch OpenCode with it as default
+  ❯ 💻 OpenCode CLI
+       Press Enter on a model → launch OpenCode CLI with it as default
+
+    🖥 OpenCode Desktop
+       Press Enter on a model → set model & open OpenCode Desktop app
 
     🦞 OpenClaw
        Press Enter on a model → set it as default in OpenClaw config
@@ -417,7 +423,8 @@ This script:
 | Flag | Description |
 |------|-------------|
 | *(none)* | Show startup menu to choose OpenCode or OpenClaw |
-| `--opencode` | OpenCode mode — Enter launches OpenCode with selected model |
+| `--opencode` | OpenCode CLI mode — Enter launches OpenCode CLI with selected model |
+| `--opencode-desktop` | OpenCode Desktop mode — Enter sets model & opens OpenCode Desktop app |
 | `--openclaw` | OpenClaw mode — Enter sets selected model as default in OpenClaw |
 | `--best` | Show only top-tier models (A+, S, S+) |
 | `--fiable` | Analyze 10 seconds, output the most reliable model as `provider/model_id` |

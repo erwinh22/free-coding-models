@@ -2,6 +2,20 @@
 
 ---
 
+## 0.1.16
+
+### Added
+- OpenCode Desktop support: new `--opencode-desktop` flag and menu option to set model & open the Desktop app
+- "Read Changelogs" menu option when an update is available (opens GitHub releases page)
+- `startOpenCodeDesktop()` function — same config logic as CLI, launches via `open -a OpenCode`
+
+### Changed
+- Startup menu: "OpenCode" renamed to "OpenCode CLI", new "OpenCode Desktop" entry added
+- TUI mode badge: shows `[💻 CLI]` or `[🖥 Desktop]` or `[🦞 OpenClaw]`
+- Footer action hint adapts to desktop mode (`Enter→OpenDesktop`)
+
+---
+
 ## 0.1.12 — 2026-02-22
 
 ### Added

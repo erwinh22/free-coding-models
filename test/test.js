@@ -344,6 +344,11 @@ describe('parseArgs', () => {
     assert.equal(parseArgs(argv('--openclaw')).openClawMode, true)
   })
 
+  it('detects --opencode-desktop flag', () => {
+    assert.equal(parseArgs(argv('--opencode-desktop')).openCodeDesktopMode, true)
+    assert.equal(parseArgs(argv()).openCodeDesktopMode, false)
+  })
+
   it('parses --tier value', () => {
     assert.equal(parseArgs(argv('--tier', 'S')).tierFilter, 'S')
     assert.equal(parseArgs(argv('--tier', 'a')).tierFilter, 'A') // 📖 uppercased

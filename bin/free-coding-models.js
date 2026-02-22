@@ -16,7 +16,7 @@
  *   - Best-per-tier highlighting with medals (🥇🥈🥉)
  *   - Interactive navigation with arrow keys directly in the table
  *   - Instant OpenCode OR OpenClaw action on Enter key press
- *   - Startup mode menu (OpenCode vs OpenClaw) when no flag is given
+ *   - Startup mode menu (OpenCode CLI vs OpenCode Desktop vs OpenClaw) when no flag is given
  *   - Automatic config detection and model setup for both tools
  *   - Persistent API key storage in ~/.free-coding-models
  *   - Multi-source support via sources.js (easily add new providers)
@@ -35,7 +35,8 @@
  *   - `getUptime`: Calculate uptime percentage from ping history
  *   - `sortResults`: Sort models by various columns
  *   - `checkNvidiaNimConfig`: Check if NVIDIA NIM provider is configured in OpenCode
- *   - `startOpenCode`: Launch OpenCode with selected model (configures if needed)
+ *   - `startOpenCode`: Launch OpenCode CLI with selected model (configures if needed)
+ *   - `startOpenCodeDesktop`: Set model in shared config & open OpenCode Desktop app
  *   - `loadOpenClawConfig` / `saveOpenClawConfig`: Manage ~/.openclaw/openclaw.json
  *   - `startOpenClaw`: Set selected model as default in OpenClaw config (remote, no launch)
  *   - `filterByTier`: Filter models by tier letter prefix (S, A, B, C)
@@ -58,7 +59,8 @@
  *
  *   🚀 CLI flags:
  *   - (no flag): Show startup menu → choose OpenCode or OpenClaw
- *   - --opencode: OpenCode mode (launch with selected model)
+ *   - --opencode: OpenCode CLI mode (launch CLI with selected model)
+ *   - --opencode-desktop: OpenCode Desktop mode (set model & open Desktop app)
  *   - --openclaw: OpenClaw mode (set selected model as default in OpenClaw)
  *   - --best: Show only top-tier models (A+, S, S+)
  *   - --fiable: Analyze 10s and output the most reliable model
@@ -166,9 +168,14 @@ async function promptApiKey() {
 async function promptModeSelection(latestVersion) {
   const options = [
     {
-      label: 'OpenCode',
+      label: 'OpenCode CLI',
       icon: '💻',
-      description: 'Press Enter on a model → launch OpenCode with it as default',
+      description: 'Press Enter on a model → launch OpenCode CLI with it as default',
+    },
+    {
+      label: 'OpenCode Desktop',
+      icon: '🖥',
+      description: 'Press Enter on a model → set model & open OpenCode Desktop app',
     },
     {
       label: 'OpenClaw',
@@ -182,6 +189,15 @@ async function promptModeSelection(latestVersion) {
       label: 'Update now',
       icon: '⬆',
       description: `Update free-coding-models to v${latestVersion}`,
+    })
+  }
+
+  // 📖 Add "Read Changelogs" option when an update is available or was just updated
+  if (latestVersion) {
+    options.push({
+      label: 'Read Changelogs',
+      icon: '📋',
+      description: 'Open the GitHub releases page in your browser',
     })
   }
 
@@ -237,8 +253,9 @@ async function promptModeSelection(latestVersion) {
         if (process.stdin.isTTY) process.stdin.setRawMode(false)
         process.stdin.removeListener('keypress', onKey)
         process.stdin.pause()
-        const choices = ['opencode', 'openclaw']
+        const choices = ['opencode', 'opencode-desktop', 'openclaw']
         if (latestVersion) choices.push('update')
+        if (latestVersion) choices.push('changelogs')
         resolve(choices[selected])
       }
     }
@@ -324,9 +341,14 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       : chalk.dim(`next ping ${secondsUntilNext}s`)
 
   // 📖 Mode badge shown in header so user knows what Enter will do
-  const modeBadge = mode === 'openclaw'
-    ? chalk.bold.rgb(255, 100, 50)(' [🦞 OpenClaw]')
-    : chalk.bold.rgb(0, 200, 255)(' [💻 OpenCode]')
+  let modeBadge
+  if (mode === 'openclaw') {
+    modeBadge = chalk.bold.rgb(255, 100, 50)(' [🦞 OpenClaw]')
+  } else if (mode === 'opencode-desktop') {
+    modeBadge = chalk.bold.rgb(0, 200, 255)(' [🖥 Desktop]')
+  } else {
+    modeBadge = chalk.bold.rgb(0, 200, 255)(' [💻 CLI]')
+  }
 
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
@@ -527,7 +549,9 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Footer hints adapt based on active mode
   const actionHint = mode === 'openclaw'
     ? chalk.rgb(255, 100, 50)('Enter→SetOpenClaw')
-    : chalk.rgb(0, 200, 255)('Enter→OpenCode')
+    : mode === 'opencode-desktop'
+      ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
+      : chalk.rgb(0, 200, 255)('Enter→OpenCode')
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(chalk.dim('  made with ') + '🩷' + chalk.dim(' by vava-nessa  •  ') + chalk.dim.underline('https://github.com/vava-nessa/free-coding-models'))
@@ -707,6 +731,74 @@ After installation, you can use: opencode --model nvidia/${model.modelId}`
         }
       })
     })
+  }
+}
+
+// ─── Start OpenCode Desktop ─────────────────────────────────────────────────────
+// 📖 startOpenCodeDesktop: Same config logic as startOpenCode, but opens the Desktop app.
+// 📖 OpenCode Desktop (/Applications/OpenCode.app) shares config at ~/.config/opencode/opencode.json.
+// 📖 No need to wait for exit — Desktop app stays open independently.
+async function startOpenCodeDesktop(model) {
+  const hasNim = checkNvidiaNimConfig()
+
+  if (hasNim) {
+    console.log(chalk.green(`  🖥 Setting ${chalk.bold(model.label)} as default for OpenCode Desktop…`))
+    console.log(chalk.dim(`  Model: nvidia/${model.modelId}`))
+    console.log()
+
+    const config = loadOpenCodeConfig()
+    const backupPath = `${OPENCODE_CONFIG}.backup-${Date.now()}`
+
+    if (existsSync(OPENCODE_CONFIG)) {
+      copyFileSync(OPENCODE_CONFIG, backupPath)
+      console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
+    }
+
+    config.model = `nvidia/${model.modelId}`
+
+    if (config.provider?.nvidia) {
+      if (!config.provider.nvidia.models) config.provider.nvidia.models = {}
+      config.provider.nvidia.models[model.modelId] = {
+        name: model.label,
+      }
+    }
+
+    saveOpenCodeConfig(config)
+
+    console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
+    console.log()
+    console.log(chalk.dim('  Opening OpenCode Desktop…'))
+    console.log()
+
+    // 📖 Launch Desktop app — no need to wait, it stays open independently
+    const { exec } = await import('child_process')
+    exec('open -a OpenCode', (err) => {
+      if (err) {
+        console.error(chalk.red('  ✗ Could not open OpenCode Desktop — is it installed at /Applications/OpenCode.app?'))
+      }
+    })
+  } else {
+    console.log(chalk.yellow('  ⚠ NVIDIA NIM not configured in OpenCode'))
+    console.log(chalk.dim('  Please configure it first. Config is shared between CLI and Desktop.'))
+    console.log()
+    const installPrompt = `Add this to ~/.config/opencode/opencode.json:
+
+{
+  "provider": {
+    "nvidia": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "NVIDIA NIM",
+      "options": {
+        "baseURL": "https://integrate.api.nvidia.com/v1",
+        "apiKey": "{env:NVIDIA_API_KEY}"
+      }
+    }
+  }
+}
+
+Then set env var: export NVIDIA_API_KEY=your_key_here`
+    console.log(chalk.cyan(installPrompt))
+    console.log()
   }
 }
 
@@ -892,7 +984,7 @@ async function main() {
   // 📖 Parse CLI arguments using shared parseArgs utility
   const parsed = parseArgs(process.argv)
   let apiKey = parsed.apiKey
-  const { bestMode, fiableMode, openCodeMode, openClawMode, tierFilter } = parsed
+  const { bestMode, fiableMode, openCodeMode, openCodeDesktopMode, openClawMode, tierFilter } = parsed
 
   // 📖 Priority: CLI arg > env var > saved config > wizard
   if (!apiKey) {
@@ -925,6 +1017,8 @@ async function main() {
   let mode
   if (openClawMode) {
     mode = 'openclaw'
+  } else if (openCodeDesktopMode) {
+    mode = 'opencode-desktop'
   } else if (openCodeMode) {
     mode = 'opencode'
   } else {
@@ -937,8 +1031,16 @@ async function main() {
     runUpdate()
   }
 
+  // 📖 Handle "Read Changelogs" selection — open GitHub releases in browser
+  if (mode === 'changelogs') {
+    const { exec } = await import('child_process')
+    exec('open https://github.com/vava-nessa/free-coding-models/releases')
+    console.log(chalk.dim('  📋 Opening changelogs in browser…'))
+    process.exit(0)
+  }
+
   // 📖 When using flags (--opencode/--openclaw), show update warning in terminal
-  if (latestVersion && (openCodeMode || openClawMode)) {
+  if (latestVersion && (openCodeMode || openCodeDesktopMode || openClawMode)) {
     console.log(chalk.red(`  ⚠ New version available (v${latestVersion}), please run npm i -g free-coding-models to install`))
     console.log()
   }
@@ -1079,6 +1181,8 @@ async function main() {
       // 📖 Dispatch to the correct integration based on active mode
       if (state.mode === 'openclaw') {
         await startOpenClaw(userSelected, apiKey)
+      } else if (state.mode === 'opencode-desktop') {
+        await startOpenCodeDesktop(userSelected)
       } else {
         await startOpenCode(userSelected)
       }
