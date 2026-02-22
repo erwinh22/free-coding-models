@@ -75,6 +75,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from
 import { homedir } from 'os'
 import { join } from 'path'
 import { MODELS } from '../sources.js'
+import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
 
 const require = createRequire(import.meta.url)
 const readline = require('readline')
@@ -753,6 +754,15 @@ async function startOpenClaw(model, apiKey) {
     const backupPath = `${OPENCLAW_CONFIG}.backup-${Date.now()}`
     copyFileSync(OPENCLAW_CONFIG, backupPath)
     console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
+  }
+
+  // 📖 Patch models.json to add all NVIDIA models (fixes "not allowed" errors)
+  const patchResult = patchOpenClawModelsJson()
+  if (patchResult.wasPatched) {
+    console.log(chalk.dim(`  ✨ Added ${patchResult.added} NVIDIA models to allowlist (${patchResult.total} total)`))
+    if (patchResult.backup) {
+      console.log(chalk.dim(`  💾 models.json backup: ${patchResult.backup}`))
+    }
   }
 
   // 📖 Ensure models.providers section exists with nvidia NIM block.
