@@ -411,11 +411,11 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Add mode toggle hint
   const modeHint = chalk.dim.yellow(' (Z to toggle)')
 
-  // 📖 Tier filter badge shown when filtering is active
+  // 📖 Tier filter badge shown when filtering is active (shows exact tier name)
+  const TIER_CYCLE_NAMES = [null, 'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
   let tierBadge = ''
   if (tierFilterMode > 0) {
-    const tierNames = ['All', 'S+/S', 'A+/A/A-', 'B+/B', 'C']
-    tierBadge = chalk.bold.rgb(255, 200, 0)(` [${tierNames[tierFilterMode]}]`)
+    tierBadge = chalk.bold.rgb(255, 200, 0)(` [${TIER_CYCLE_NAMES[tierFilterMode]}]`)
   }
 
   // 📖 Column widths (generous spacing with margins)
@@ -665,7 +665,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Tier  •  Z Mode  •  Ctrl+C Exit`))
   lines.push('')
-  lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '💬 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/WKA3TwYVuZ\x1b\\Join Free-Coding-Models Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
+  lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '🫂 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/WKA3TwYVuZ\x1b\\Join our Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
   lines.push('')
   // 📖 Append \x1b[K (erase to EOL) to each line so leftover chars from previous
   // 📖 frames are cleared. Then pad with blank cleared lines to fill the terminal,
@@ -1296,29 +1296,15 @@ async function main() {
   process.on('SIGINT',  () => exit(0))
   process.on('SIGTERM', () => exit(0))
 
-  // 📖 Tier filtering system - cycles through filter modes
-  let tierFilterMode = 0 // 0=all, 1=S+/S, 2=A+/A/A-, 3=B+/B, 4=C
+  // 📖 Tier filtering system - cycles through each individual tier one by one
+  // 📖 0=All, 1=S+, 2=S, 3=A+, 4=A, 5=A-, 6=B+, 7=B, 8=C
+  const TIER_CYCLE = [null, 'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
+  let tierFilterMode = 0
   function applyTierFilter() {
+    const activeTier = TIER_CYCLE[tierFilterMode]
     state.results.forEach(r => {
-      switch (tierFilterMode) {
-        case 0: // All tiers visible
-          r.hidden = false
-          break
-        case 1: // S+ and S only
-          r.hidden = !(r.tier === 'S+' || r.tier === 'S')
-          break
-        case 2: // A+, A, A- only
-          r.hidden = !(r.tier === 'A+' || r.tier === 'A' || r.tier === 'A-')
-          break
-        case 3: // B+ and B only
-          r.hidden = !(r.tier === 'B+' || r.tier === 'B')
-          break
-        case 4: // C only
-          r.hidden = r.tier !== 'C'
-          break
-      }
+      r.hidden = activeTier !== null && r.tier !== activeTier
     })
-    
     return state.results
   }
 
@@ -1359,9 +1345,9 @@ async function main() {
       state.pingInterval = Math.min(60000, state.pingInterval + 1000)
     }
 
-    // 📖 Tier toggle key: T = cycle through tier filters (all → S+/S → A+/A/A- → B+/B → C → all)
+    // 📖 Tier toggle key: T = cycle through each individual tier (All → S+ → S → A+ → A → A- → B+ → B → C → All)
     if (key.name === 't') {
-      tierFilterMode = (tierFilterMode + 1) % 5
+      tierFilterMode = (tierFilterMode + 1) % TIER_CYCLE.length
       applyTierFilter()
       adjustScrollOffset(state)
       return
