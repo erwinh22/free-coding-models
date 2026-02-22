@@ -1582,7 +1582,7 @@ async function main() {
       'l': 'ping', 'a': 'avg', 's': 'swe', 'n': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
-    if (sortKeys[key.name]) {
+    if (sortKeys[key.name] && !key.ctrl) {
       const col = sortKeys[key.name]
       // 📖 Toggle direction if same column, otherwise reset to asc
       if (state.sortColumn === col) {
