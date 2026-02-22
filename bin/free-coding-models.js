@@ -421,6 +421,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
   const W_TIER = 6
+  const W_CTW = 6
   const W_SOURCE = 14
   const W_MODEL = 26
   const W_SWE = 9
@@ -453,6 +454,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const originH  = 'Origin'
   const modelH   = 'Model'
   const sweH     = sortColumn === 'swe' ? dir + ' SWE%' : 'SWE%'
+  const ctwH     = sortColumn === 'ctw' ? dir + ' CTW' : 'CTW'
   const pingH    = sortColumn === 'ping' ? dir + ' Latest Ping' : 'Latest Ping'
   const avgH     = sortColumn === 'avg' ? dir + ' Avg Ping' : 'Avg Ping'
   const healthH  = sortColumn === 'condition' ? dir + ' Health' : 'Health'
@@ -475,14 +477,15 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const originH_c  = sortColumn === 'origin' ? chalk.bold.cyan(originH.padEnd(W_SOURCE)) : colorFirst(originH, W_SOURCE)
   const modelH_c   = colorFirst(modelH, W_MODEL)
   const sweH_c     = sortColumn === 'swe' ? chalk.bold.cyan(sweH.padEnd(W_SWE)) : colorFirst(sweH, W_SWE)
+  const ctwH_c     = sortColumn === 'ctw' ? chalk.bold.cyan(ctwH.padEnd(W_CTW)) : colorFirst(ctwH, W_CTW)
   const pingH_c    = sortColumn === 'ping' ? chalk.bold.cyan(pingH.padEnd(W_PING)) : colorFirst('Latest Ping', W_PING)
   const avgH_c     = sortColumn === 'avg' ? chalk.bold.cyan(avgH.padEnd(W_AVG)) : colorFirst('Avg Ping', W_AVG)
   const healthH_c  = sortColumn === 'condition' ? chalk.bold.cyan(healthH.padEnd(W_STATUS)) : colorFirst('Health', W_STATUS)
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : colorFirst(verdictH, W_VERDICT)
   const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padStart(W_UPTIME)) : colorFirst(uptimeH, W_UPTIME, chalk.green)
 
-  // 📖 Header with proper spacing
-  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sweH_c + '  ' + modelH_c + '  ' + originH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + healthH_c + '  ' + verdictH_c + '  ' + uptimeH_c)
+  // 📖 Header with proper spacing (column order: Rank, Tier, SWE%, CTW, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Up%)
+  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sweH_c + '  ' + ctwH_c + '  ' + modelH_c + '  ' + originH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + healthH_c + '  ' + verdictH_c + '  ' + uptimeH_c)
 
   // 📖 Separator line
   lines.push(
@@ -490,6 +493,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     chalk.dim('─'.repeat(W_RANK)) + '  ' +
     chalk.dim('─'.repeat(W_TIER)) + '  ' +
     chalk.dim('─'.repeat(W_SWE)) + '  ' +
+    chalk.dim('─'.repeat(W_CTW)) + '  ' +
     '─'.repeat(W_MODEL) + '  ' +
     '─'.repeat(W_SOURCE) + '  ' +
     chalk.dim('─'.repeat(W_PING)) + '  ' +
@@ -523,6 +527,14 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       : sweScore !== '—' && parseFloat(sweScore) >= 30
       ? chalk.yellow(sweScore.padEnd(W_SWE))
       : chalk.dim(sweScore.padEnd(W_SWE))
+    
+    // 📖 Context window column - colorized by size (larger = better)
+    const ctwRaw = r.ctw ?? '—'
+    const ctwCell = ctwRaw !== '—' && (ctwRaw.includes('128k') || ctwRaw.includes('200k') || ctwRaw.includes('1m'))
+      ? chalk.greenBright(ctwRaw.padEnd(W_CTW))
+      : ctwRaw !== '—' && (ctwRaw.includes('32k') || ctwRaw.includes('64k'))
+      ? chalk.cyan(ctwRaw.padEnd(W_CTW))
+      : chalk.dim(ctwRaw.padEnd(W_CTW))
 
     // 📖 Latest ping - pings are objects: { ms, code }
     // 📖 Only show response time for successful pings, "—" for errors (error code is in Status column)
@@ -628,8 +640,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       uptimeCell = chalk.red(uptimeStr.padStart(W_UPTIME))
     }
 
-    // 📖 Build row with double space between columns
-    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
+    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTW, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Up%)
+    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctwCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
 
     if (isCursor) {
       lines.push(chalk.bgRgb(139, 0, 139)(row))
@@ -651,7 +663,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : mode === 'opencode-desktop'
       ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/L/A/S/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Tier  •  Z Mode  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Tier  •  Z Mode  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '💬 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/WKA3TwYVuZ\x1b\\Join Free-Coding-Models Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
   lines.push('')
@@ -783,14 +795,25 @@ async function startOpenCode(model) {
 
     saveOpenCodeConfig(config)
 
-    console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
+    // 📖 Verify config was saved correctly
+    const savedConfig = loadOpenCodeConfig()
+    console.log(chalk.dim(`  📝 Config saved to: ${getOpenCodeConfigPath()}`))
+    console.log(chalk.dim(`  📝 Default model in config: ${savedConfig.model || 'NOT SET'}`))
+    console.log()
+    
+    if (savedConfig.model === config.model) {
+      console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
+    } else {
+      console.log(chalk.yellow(`  ⚠ Config might not have been saved correctly`))
+    }
     console.log()
     console.log(chalk.dim('  Starting OpenCode…'))
     console.log()
 
     // 📖 Launch OpenCode and wait for it
+    // 📖 Use --model flag to ensure the model is selected
     const { spawn } = await import('child_process')
-    const child = spawn('opencode', [], {
+    const child = spawn('opencode', ['--model', `nvidia/${model.modelId}`], {
       stdio: 'inherit',
       shell: true,
       detached: false
@@ -895,7 +918,17 @@ async function startOpenCodeDesktop(model) {
 
     saveOpenCodeConfig(config)
 
-    console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
+    // 📖 Verify config was saved correctly
+    const savedConfig = loadOpenCodeConfig()
+    console.log(chalk.dim(`  📝 Config saved to: ${getOpenCodeConfigPath()}`))
+    console.log(chalk.dim(`  📝 Default model in config: ${savedConfig.model || 'NOT SET'}`))
+    console.log()
+    
+    if (savedConfig.model === config.model) {
+      console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
+    } else {
+      console.log(chalk.yellow(`  ⚠ Config might not have been saved correctly`))
+    }
     console.log()
     console.log(chalk.dim('  Opening OpenCode Desktop…'))
     console.log()
@@ -912,9 +945,9 @@ async function startOpenCodeDesktop(model) {
       // 📖 System installation: C:\Program Files\OpenCode\OpenCode.exe
       command = 'start "" "%LOCALAPPDATA%\\Programs\\OpenCode\\OpenCode.exe" 2>nul || start "" "%PROGRAMFILES%\\OpenCode\\OpenCode.exe" 2>nul || start OpenCode'
     } else if (isLinux) {
-      // 📖 On Linux, try different methods
+      // 📖 On Linux, try different methods with model flag
       // 📖 Check if opencode-desktop exists, otherwise try xdg-open
-      command = 'opencode-desktop 2>/dev/null || xdg-open /usr/share/applications/opencode.desktop 2>/dev/null || flatpak run ai.opencode.OpenCode 2>/dev/null || snap run opencode 2>/dev/null || echo "OpenCode not found"'
+      command = `opencode-desktop --model nvidia/${model.modelId} 2>/dev/null || flatpak run ai.opencode.OpenCode --model nvidia/${model.modelId} 2>/dev/null || snap run opencode --model nvidia/${model.modelId} 2>/dev/null || xdg-open /usr/share/applications/opencode.desktop 2>/dev/null || echo "OpenCode not found"`
     }
 
     exec(command, (err, stdout, stderr) => {
@@ -1072,8 +1105,8 @@ async function runFiableMode(apiKey) {
   console.log(chalk.cyan('  ⚡ Analyzing models for reliability (10 seconds)...'))
   console.log()
 
-  let results = MODELS.map(([modelId, label, tier, sweScore], i) => ({
-    idx: i + 1, modelId, label, tier, sweScore,
+  let results = MODELS.map(([modelId, label, tier, sweScore, ctw], i) => ({
+    idx: i + 1, modelId, label, tier, sweScore, ctw,
     status: 'pending',
     pings: [],
     httpCode: null,
@@ -1163,8 +1196,8 @@ async function main() {
   // 📖 This section is now handled by the update notification menu above
 
   // 📖 Create results array with all models initially visible
-  let results = MODELS.map(([modelId, label, tier, sweScore], i) => ({
-    idx: i + 1, modelId, label, tier, sweScore,
+  let results = MODELS.map(([modelId, label, tier, sweScore, ctw], i) => ({
+    idx: i + 1, modelId, label, tier, sweScore, ctw,
     status: 'pending',
     pings: [],  // 📖 All ping results (ms or 'TIMEOUT')
     httpCode: null,
@@ -1273,10 +1306,10 @@ async function main() {
   const onKeyPress = async (str, key) => {
     if (!key) return
 
-    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, H=health, V=verdict, U=uptime
+    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, C=context window, H=health, V=verdict, U=uptime
     const sortKeys = {
       'r': 'rank', 't': 'tier', 'o': 'origin', 'm': 'model',
-      'l': 'ping', 'a': 'avg', 's': 'swe', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
+      'l': 'ping', 'a': 'avg', 's': 'swe', 'c': 'ctw', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
     if (sortKeys[key.name]) {

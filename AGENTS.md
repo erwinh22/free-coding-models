@@ -4,7 +4,7 @@
 
 After completing any feature or fix, the agent MUST:
 
-1. Run `pnpm test` to verify all unit tests pass (59 tests across 11 suites)
+1. Run `pnpm test` to verify all unit tests pass (62 tests across 11 suites)
 2. If any test fails, fix the issue immediately
 3. Re-run `pnpm test` until all tests pass
 4. Run `pnpm start` to verify there are no runtime errors

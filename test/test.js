@@ -39,6 +39,8 @@ function mockResult(overrides = {}) {
     modelId: 'test/model',
     label: 'Test Model',
     tier: 'S',
+    sweScore: '50.0%',
+    ctw: '128k',
     status: 'up',
     pings: [],
     httpCode: null,
@@ -57,14 +59,15 @@ describe('sources.js data integrity', () => {
     assert.ok(nvidiaNim.length > 0, 'nvidiaNim should have models')
   })
 
-  it('every model entry has [modelId, label, tier, sweScore] structure', () => {
+  it('every model entry has [modelId, label, tier, sweScore, ctw] structure', () => {
     for (const entry of nvidiaNim) {
       assert.ok(Array.isArray(entry), `Entry should be an array: ${JSON.stringify(entry)}`)
-      assert.equal(entry.length, 4, `Entry should have 4 elements: ${JSON.stringify(entry)}`)
+      assert.equal(entry.length, 5, `Entry should have 5 elements: ${JSON.stringify(entry)}`)
       assert.equal(typeof entry[0], 'string', `modelId should be string: ${entry[0]}`)
       assert.equal(typeof entry[1], 'string', `label should be string: ${entry[1]}`)
       assert.equal(typeof entry[2], 'string', `tier should be string: ${entry[2]}`)
       assert.equal(typeof entry[3], 'string', `sweScore should be string: ${entry[3]}`)
+      assert.equal(typeof entry[4], 'string', `ctw should be string: ${entry[4]}`)
     }
   })
 
@@ -267,6 +270,28 @@ describe('sortResults', () => {
     ]
     const sorted = sortResults(results, 'model', 'asc')
     assert.equal(sorted[0].label, 'Alpha')
+  })
+
+  it('sorts by ctw (context window) ascending', () => {
+    const results = [
+      mockResult({ label: 'Small', ctw: '8k' }),
+      mockResult({ label: 'Large', ctw: '128k' }),
+      mockResult({ label: 'Medium', ctw: '32k' }),
+    ]
+    const sorted = sortResults(results, 'ctw', 'asc')
+    assert.equal(sorted[0].label, 'Small')
+    assert.equal(sorted[1].label, 'Medium')
+    assert.equal(sorted[2].label, 'Large')
+  })
+
+  it('sorts by ctw with million tokens', () => {
+    const results = [
+      mockResult({ label: 'K', ctw: '128k' }),
+      mockResult({ label: 'M', ctw: '1m' }),
+    ]
+    const sorted = sortResults(results, 'ctw', 'asc')
+    assert.equal(sorted[0].label, 'K')
+    assert.equal(sorted[1].label, 'M')
   })
 
   it('does not mutate original array', () => {
