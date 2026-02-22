@@ -10,7 +10,11 @@ After completing any feature or fix, the agent MUST:
 4. Run `pnpm start` to verify there are no runtime errors
 5. If there are errors, fix them immediately
 6. Re-run `pnpm start` until all errors are resolved
-7. Only then consider the task complete
+7. If the fix involves published package files (e.g. `files` field in `package.json`), also test the **globally installed** version:
+   - `npm install -g .` to reinstall from local repo
+   - `free-coding-models` to verify the global binary works
+   - This catches issues like missing files in the npm package that `pnpm start` (local) won't reveal
+8. Only then consider the task complete
 
 This ensures the codebase remains in a working state at all times.
 
