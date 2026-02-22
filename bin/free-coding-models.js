@@ -198,6 +198,8 @@ async function promptModeSelection(latestVersion) {
       }
       console.log(chalk.bold('  ⚡ Free Coding Models') + chalk.dim(' — Choose your tool'))
       console.log()
+      console.log(chalk.yellow.bold('  ⚠️  Warning: ') + chalk.yellow('Small terminals may break the layout — maximize your window for best results!'))
+      console.log()
       for (let i = 0; i < options.length; i++) {
         const isSelected = i === selected
         const bullet = isSelected ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
@@ -615,6 +617,17 @@ async function startOpenCode(model) {
 
     // 📖 Update default model to nvidia/model_id
     config.model = `nvidia/${model.modelId}`
+
+    // 📖 Register the model in the nvidia provider's models section
+    // 📖 OpenCode requires models to be explicitly listed in provider.models
+    // 📖 to recognize them — without this, it falls back to the previous default
+    if (config.provider?.nvidia) {
+      if (!config.provider.nvidia.models) config.provider.nvidia.models = {}
+      config.provider.nvidia.models[model.modelId] = {
+        name: model.label,
+      }
+    }
+
     saveOpenCodeConfig(config)
 
     console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
