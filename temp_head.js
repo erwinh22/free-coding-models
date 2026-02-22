@@ -562,13 +562,21 @@ async function startOpenCode(model) {
     const { spawn } = await import('child_process')
     const child = spawn('opencode', [], {
       stdio: 'inherit',
-      shell: false
+      shell: true
     })
     
     // 📖 Wait for OpenCode to exit
     await new Promise((resolve, reject) => {
       child.on('exit', resolve)
-      child.on('error', reject)
+      child.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+          console.error(chalk.red('\n  ✗ Could not find "opencode" — is it installed and in your PATH?'))
+          console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
+          resolve(1)
+        } else {
+          reject(err)
+        }
+      })
     })
   } else {
     // 📖 NVIDIA NIM not configured - show install prompt and launch
@@ -604,13 +612,21 @@ After installation, you can use: opencode --model nvidia/${model.modelId}`
     const { spawn } = await import('child_process')
     const child = spawn('opencode', [], {
       stdio: 'inherit',
-      shell: false
+      shell: true
     })
     
     // 📖 Wait for OpenCode to exit
     await new Promise((resolve, reject) => {
       child.on('exit', resolve)
-      child.on('error', reject)
+      child.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+          console.error(chalk.red('\n  ✗ Could not find "opencode" — is it installed and in your PATH?'))
+          console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
+          resolve(1)
+        } else {
+          reject(err)
+        }
+      })
     })
   }
 }

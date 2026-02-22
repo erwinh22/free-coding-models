@@ -2,6 +2,13 @@
 
 ---
 
+## 0.1.9 — 2026-02-22
+
+### Fixed
+- **OpenCode spawn ENOENT**: Use `shell: true` when spawning `opencode` so the command resolves correctly on Windows (`.cmd`/`.bat` wrappers). Added friendly error message when `opencode` is not installed.
+
+---
+
 ## 0.1.4 — 2026-02-22
 
 ### Fixed
