@@ -97,19 +97,23 @@ async function checkForUpdate() {
   return null
 }
 
-function runUpdate() {
+function runUpdate(latestVersion) {
   const { execSync } = require('child_process')
   console.log()
-  console.log(chalk.bold.cyan('  ⬆ Updating free-coding-models...'))
+  console.log(chalk.bold.cyan('  ⬆ Updating free-coding-models to v' + latestVersion + '...'))
   console.log()
   try {
-    execSync('npm i -g free-coding-models', { stdio: 'inherit' })
+    // 📖 Force install from npm registry (ignore local cache)
+    // 📖 Use --prefer-online to ensure we get the latest published version
+    execSync(`npm i -g free-coding-models@${latestVersion} --prefer-online`, { stdio: 'inherit' })
     console.log()
-    console.log(chalk.green('  ✅ Update complete! Please restart free-coding-models.'))
+    console.log(chalk.green('  ✅ Update complete! Version ' + latestVersion + ' installed.'))
     console.log()
-  } catch {
+    console.log(chalk.dim('  📝 Please restart free-coding-models to use the new version.'))
     console.log()
-    console.log(chalk.red('  ✖ Update failed. Try manually: npm i -g free-coding-models'))
+  } catch (err) {
+    console.log()
+    console.log(chalk.red('  ✖ Update failed. Try manually: npm i -g free-coding-models@' + latestVersion))
     console.log()
   }
   process.exit(0)
@@ -1028,7 +1032,7 @@ async function main() {
 
   // 📖 Handle "update now" selection from the menu
   if (mode === 'update') {
-    runUpdate()
+    runUpdate(latestVersion)
   }
 
   // 📖 Handle "Read Changelogs" selection — open GitHub releases in browser
