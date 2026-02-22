@@ -9,7 +9,7 @@
 
 <p align="center">
   <strong>Find the fastest coding LLM models in seconds</strong><br>
-  <sub>Ping free models from multiple providers — pick the best one for OpenCode, Cursor, or any AI coding assistant</sub>
+  <sub>Ping free NVIDIA NIM models in real-time — pick the best one for OpenCode, OpenClaw, or any AI coding assistant</sub>
 </p>
 
 <p align="center">
@@ -22,6 +22,8 @@
   <a href="#-installation">Installation</a> •
   <a href="#-usage">Usage</a> •
   <a href="#-models">Models</a> •
+  <a href="#-opencode-integration">OpenCode</a> •
+  <a href="#-openclaw-integration">OpenClaw</a> •
   <a href="#-how-it-works">How it works</a>
 </p>
 
@@ -37,11 +39,14 @@
 - **📈 Rolling averages** — Avg calculated from ALL successful pings since start
 - **📊 Uptime tracking** — Percentage of successful pings shown in real-time
 - **🔄 Auto-retry** — Timeout models keep getting retried, nothing is ever "given up on"
-- **🎮 Interactive selection** — Navigate with arrow keys directly in the table, press Enter to launch OpenCode
-- **🔌 Auto-configuration** — Detects NVIDIA NIM setup, installs if missing, sets as default model
+- **🎮 Interactive selection** — Navigate with arrow keys directly in the table, press Enter to act
+- **🔀 Startup mode menu** — Choose between OpenCode and OpenClaw before the TUI launches
+- **💻 OpenCode integration** — Auto-detects NIM setup, sets model as default, launches OpenCode
+- **🦞 OpenClaw integration** — Sets selected model as default provider in `~/.openclaw/openclaw.json`
 - **🎨 Clean output** — Zero scrollback pollution, interface stays open until Ctrl+C
 - **📶 Status indicators** — UP ✅ · Timeout ⏳ · Overloaded 🔥 · Not Found 🚫
 - **🔧 Multi-source support** — Extensible architecture via `sources.js` (add new providers easily)
+- **🏷 Tier filtering** — Filter models by tier letter (S, A, B, C) with `--tier`
 
 ---
 
@@ -50,11 +55,12 @@
 Before using `free-coding-models`, make sure you have:
 
 1. **Node.js 18+** — Required for native `fetch` API
-2. **OpenCode installed** — [Install OpenCode](https://github.com/opencode-ai/opencode) (`npm install -g opencode`)
-3. **NVIDIA NIM account** — Free tier available at [build.nvidia.com](https://build.nvidia.com)
-4. **API key** — Generate one from Profile → API Keys → Generate API Key
+2. **NVIDIA NIM account** — Free tier available at [build.nvidia.com](https://build.nvidia.com)
+3. **API key** — Generate one from Profile → API Keys → Generate API Key
+4. **OpenCode** *(optional)* — [Install OpenCode](https://github.com/opencode-ai/opencode) to use the OpenCode integration
+5. **OpenClaw** *(optional)* — [Install OpenClaw](https://openclaw.ai) to use the OpenClaw integration
 
-> 💡 **Tip:** Without OpenCode installed, you can still use the tool to benchmark models. OpenCode is only needed for the auto-launch feature.
+> 💡 **Tip:** Without OpenCode/OpenClaw installed, you can still benchmark models and get latency data.
 
 ---
 
@@ -81,24 +87,56 @@ bunx free-coding-models YOUR_API_KEY
 ## 🚀 Usage
 
 ```bash
-# Just run it — will prompt for API key if not set
+# Just run it — shows a startup menu to pick OpenCode or OpenClaw, prompts for API key if not set
 free-coding-models
+
+# Explicitly target OpenCode (current default behavior — TUI + Enter launches OpenCode)
+free-coding-models --opencode
+
+# Explicitly target OpenClaw (TUI + Enter sets model as default in OpenClaw)
+free-coding-models --openclaw
 
 # Show only top-tier models (A+, S, S+)
 free-coding-models --best
 
 # Analyze for 10 seconds and output the most reliable model
 free-coding-models --fiable
+
+# Filter models by tier letter
+free-coding-models --tier S          # S+ and S only
+free-coding-models --tier A          # A+, A, A- only
+free-coding-models --tier B          # B+, B only
+free-coding-models --tier C          # C only
+
+# Combine flags freely
+free-coding-models --openclaw --tier S
+free-coding-models --opencode --best
 ```
+
+### Startup mode menu
+
+When you run `free-coding-models` without `--opencode` or `--openclaw`, you get an interactive startup menu:
+
+```
+  ⚡ Free Coding Models — Choose your tool
+
+  ❯ 💻 OpenCode
+       Press Enter on a model → launch OpenCode with it as default
+
+    🦞 OpenClaw
+       Press Enter on a model → set it as default in OpenClaw config
+
+  ↑↓ Navigate  •  Enter Select  •  Ctrl+C Exit
+```
+
+Use `↑↓` arrows to select, `Enter` to confirm. Then the TUI launches with your chosen mode shown in the header badge.
 
 **How it works:**
 1. **Ping phase** — All 44 models are pinged in parallel
 2. **Continuous monitoring** — Models are re-pinged every 2 seconds forever
 3. **Real-time updates** — Watch "Latest", "Avg", and "Up%" columns update live
-4. **Select anytime** — Use ↑↓ arrows to navigate, press Enter on a model to launch OpenCode
-5. **Smart detection** — Automatically detects if NVIDIA NIM is configured in OpenCode:
-   - ✅ If configured → Sets model as default and launches OpenCode
-   - ⚠️ If missing → Shows installation instructions and launches OpenCode
+4. **Select anytime** — Use ↑↓ arrows to navigate, press Enter on a model to act
+5. **Smart detection** — Automatically detects if NVIDIA NIM is configured in OpenCode or OpenClaw
 
 Setup wizard:
 
@@ -161,13 +199,24 @@ free-coding-models
 - **A-/B+** — Solid performers, good for targeted programming tasks
 - **B/C** — Lightweight or older models, good for code completion on constrained infra
 
+### Filtering by tier
+
+Use `--tier` to focus on a specific capability band:
+
+```bash
+free-coding-models --tier S     # Only S+ and S (frontier models)
+free-coding-models --tier A     # Only A+, A, A- (solid performers)
+free-coding-models --tier B     # Only B+, B (lightweight options)
+free-coding-models --tier C     # Only C (edge/minimal models)
+```
+
 ---
 
-## 🔌 Use with OpenCode
+## 🔌 OpenCode Integration
 
 **The easiest way** — let `free-coding-models` do everything:
 
-1. **Run**: `free-coding-models`
+1. **Run**: `free-coding-models --opencode` (or choose OpenCode from the startup menu)
 2. **Wait** for models to be pinged (green ✅ status)
 3. **Navigate** with ↑↓ arrows to your preferred model
 4. **Press Enter** — tool automatically:
@@ -175,23 +224,7 @@ free-coding-models
    - Sets your selected model as default in `~/.config/opencode/opencode.json`
    - Launches OpenCode with the model ready to use
 
-That's it! No manual config needed.
-
-### Manual Setup (Optional)
-
-If you prefer to configure OpenCode yourself:
-
-#### Prerequisites
-
-1. **OpenCode installed**: `npm install -g opencode` (or equivalent)
-2. **NVIDIA NIM account**: Get a free account at [build.nvidia.com](https://build.nvidia.com)
-3. **API key generated**: Go to Profile → API Keys → Generate API Key
-
-#### 1. Find your model
-
-Run `free-coding-models` to see which models are available and fast. The "Latest" column shows real-time latency, "Avg" shows rolling average, and "Up%" shows uptime percentage (reliability over time).
-
-#### 2. Configure OpenCode
+### Manual OpenCode Setup (Optional)
 
 Create or edit `~/.config/opencode/opencode.json`:
 
@@ -211,53 +244,86 @@ Create or edit `~/.config/opencode/opencode.json`:
 }
 ```
 
-#### 3. Set environment variable
+Then set the environment variable:
 
 ```bash
 export NVIDIA_API_KEY=nvapi-xxxx-your-key-here
 # Add to ~/.bashrc or ~/.zshrc for persistence
 ```
 
-#### 4. Use it
-
 Run `/models` in OpenCode and select **NVIDIA NIM** provider and your chosen model.
 
 > ⚠️ **Note:** Free models have usage limits based on NVIDIA's tier — check [build.nvidia.com](https://build.nvidia.com) for quotas.
 
-### Automatic Installation
+### Automatic Installation Fallback
 
-The tool includes a **smart fallback mechanism**:
+If NVIDIA NIM is not yet configured in OpenCode, the tool:
+- Shows installation instructions in your terminal
+- Creates a `prompt` file in `$HOME/prompt` with the exact configuration
+- Launches OpenCode, which will detect and display the prompt automatically
 
-1. **Primary**: Try to launch OpenCode with the selected model
-2. **Fallback**: If NVIDIA NIM is not detected in `~/.config/opencode/opencode.json`, the tool:
-   - Shows installation instructions in your terminal
-   - Creates a `prompt` file in `$HOME/prompt` with the exact configuration to add
-   - Launches OpenCode, which will detect and display the prompt automatically
+---
 
-This **"prompt" fallback** ensures that even if NVIDIA NIM isn't pre-configured, OpenCode will guide you through installation with the ready-to-use configuration already prepared.
+## 🦞 OpenClaw Integration
 
-#### Example prompt file created at `$HOME/prompt`:
+OpenClaw is an autonomous AI agent daemon. `free-coding-models` can configure it to use NVIDIA NIM models as its default provider — no download or local setup needed, everything runs via the NIM remote API.
+
+### Quick Start
+
+```bash
+free-coding-models --openclaw
+```
+
+Or run without flags and choose **OpenClaw** from the startup menu.
+
+1. **Wait** for models to be pinged
+2. **Navigate** with ↑↓ arrows to your preferred model
+3. **Press Enter** — tool automatically:
+   - Reads `~/.openclaw/openclaw.json`
+   - Adds the `nvidia` provider block (NIM base URL + your API key) if missing
+   - Sets `agents.defaults.model.primary` to `nvidia/<model-id>`
+   - Saves config and prints next steps
+
+### What gets written to OpenClaw config
 
 ```json
-Please install NVIDIA NIM provider in OpenCode by adding this to ~/.config/opencode/opencode.json:
-
 {
-  "provider": {
+  "providers": {
     "nvidia": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "NVIDIA NIM",
-      "options": {
-        "baseURL": "https://integrate.api.nvidia.com/v1",
-        "apiKey": "{env:NVIDIA_API_KEY}"
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKey": "nvapi-xxxx-your-key",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "deepseek-ai/deepseek-v3.2",
+          "name": "DeepSeek V3.2",
+          "contextWindow": 128000,
+          "maxTokens": 8192
+        }
+      ]
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "nvidia/deepseek-ai/deepseek-v3.2"
       }
     }
   }
 }
-
-Then set env var: export NVIDIA_API_KEY=your_key_here
 ```
 
-OpenCode will automatically detect this file when launched and guide you through the installation.
+### After updating OpenClaw config
+
+Restart OpenClaw or run the CLI command to apply the new model:
+
+```bash
+openclaw restart
+# or
+openclaw models set nvidia/deepseek-ai/deepseek-v3.2
+```
+
+> 💡 **Why use remote NIM models with OpenClaw?** NVIDIA NIM serves models via a fast API — no local GPU required, no VRAM limits, free credits for developers. You get frontier-class coding models (DeepSeek V3, Kimi K2, Qwen3 Coder) without downloading anything.
 
 ---
 
@@ -271,14 +337,12 @@ OpenCode will automatically detect this file when launched and guide you through
 │  4. Re-ping ALL models every 2 seconds (forever)           │
 │  5. Update rolling averages from ALL successful pings      │
 │  6. User can navigate with ↑↓ and select with Enter       │
-│  7. On Enter: stop monitoring, exit alt screen            │
-│  8. Detect NVIDIA NIM config in OpenCode                   │
-│  9. If configured: update default model, launch OpenCode   │
-│ 10. If missing: show install prompt, launch OpenCode      │
+│  7. On Enter (OpenCode): set model, launch OpenCode        │
+│  8. On Enter (OpenClaw): update ~/.openclaw/openclaw.json  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Result:** Continuous monitoring interface that stays open until you select a model or press Ctrl+C. Rolling averages give you accurate long-term latency data, uptime percentage tracks reliability, and you can launch OpenCode with your chosen model in one keystroke.
+**Result:** Continuous monitoring interface that stays open until you select a model or press Ctrl+C. Rolling averages give you accurate long-term latency data, uptime percentage tracks reliability, and you can configure your tool of choice with your chosen model in one keystroke.
 
 ---
 
@@ -295,12 +359,22 @@ OpenCode will automatically detect this file when launched and guide you through
 - **Monitor mode**: Interface stays open forever, press Ctrl+C to exit
 
 **Flags:**
-- **--best** — Show only top-tier models (A+, S, S+)
-- **--fiable** — Analyze for 10 seconds and output the most reliable model in format `provider/model_id`
+
+| Flag | Description |
+|------|-------------|
+| *(none)* | Show startup menu to choose OpenCode or OpenClaw |
+| `--opencode` | OpenCode mode — Enter launches OpenCode with selected model |
+| `--openclaw` | OpenClaw mode — Enter sets selected model as default in OpenClaw |
+| `--best` | Show only top-tier models (A+, S, S+) |
+| `--fiable` | Analyze 10 seconds, output the most reliable model as `provider/model_id` |
+| `--tier S` | Show only S+ and S tier models |
+| `--tier A` | Show only A+, A, A- tier models |
+| `--tier B` | Show only B+, B tier models |
+| `--tier C` | Show only C tier models |
 
 **Keyboard shortcuts:**
 - **↑↓** — Navigate models
-- **Enter** — Select model and launch OpenCode
+- **Enter** — Select model (launches OpenCode or sets OpenClaw default, depending on mode)
 - **R/T/O/M/P/A/S/V/U** — Sort by Rank/Tier/Origin/Model/Ping/Avg/Status/Verdict/Uptime
 - **W** — Decrease ping interval (faster pings)
 - **X** — Increase ping interval (slower pings)
@@ -337,6 +411,9 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 
 **Q:** How accurate are the latency numbers?
 **A:** They represent average round-trip times measured during testing; actual performance may vary based on network conditions.
+
+**Q:** Do I need to download models locally for OpenClaw?
+**A:** No — `free-coding-models` configures OpenClaw to use NVIDIA NIM's remote API, so models run on NVIDIA's infrastructure. No GPU or local setup required.
 
 ## 📧 Support
 For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/QnR8xq9p

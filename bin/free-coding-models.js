@@ -1,30 +1,33 @@
 #!/usr/bin/env node
 /**
  * @file free-coding-models.js
- * @description Live terminal availability checker for coding LLM models with OpenCode integration.
+ * @description Live terminal availability checker for coding LLM models with OpenCode & OpenClaw integration.
  *
  * @details
  *   This CLI tool discovers and benchmarks language models optimized for coding.
  *   It runs in an alternate screen buffer, pings all models in parallel, re-pings successful ones
  *   multiple times for reliable latency measurements, and prints a clean final table.
- *   During benchmarking, users can navigate with arrow keys and press Enter to launch OpenCode immediately.
+ *   During benchmarking, users can navigate with arrow keys and press Enter to act on the selected model.
  *
  *   🎯 Key features:
  *   - Parallel pings across all models with animated real-time updates
- *   - Continuous monitoring with 10-second ping intervals (never stops)
+ *   - Continuous monitoring with 2-second ping intervals (never stops)
  *   - Rolling averages calculated from ALL successful pings since start
  *   - Best-per-tier highlighting with medals (🥇🥈🥉)
  *   - Interactive navigation with arrow keys directly in the table
- *   - Instant OpenCode launch on Enter key press (any model, even timeout/down)
- *   - Automatic OpenCode config detection and model setup
+ *   - Instant OpenCode OR OpenClaw action on Enter key press
+ *   - Startup mode menu (OpenCode vs OpenClaw) when no flag is given
+ *   - Automatic config detection and model setup for both tools
  *   - Persistent API key storage in ~/.free-coding-models
  *   - Multi-source support via sources.js (easily add new providers)
  *   - Uptime percentage tracking (successful pings / total pings)
  *   - Sortable columns (R/T/O/M/P/A/S/V/U keys)
+ *   - Tier filtering via --tier S/A/B/C flags
  *
  *   → Functions:
  *   - `loadApiKey` / `saveApiKey`: Manage persisted API key in ~/.free-coding-models
  *   - `promptApiKey`: Interactive wizard for first-time API key setup
+ *   - `promptModeSelection`: Startup menu to choose OpenCode vs OpenClaw
  *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
  *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
  *   - `getAvg`: Calculate average latency from all successful pings
@@ -33,6 +36,9 @@
  *   - `sortResults`: Sort models by various columns
  *   - `checkNvidiaNimConfig`: Check if NVIDIA NIM provider is configured in OpenCode
  *   - `startOpenCode`: Launch OpenCode with selected model (configures if needed)
+ *   - `loadOpenClawConfig` / `saveOpenClawConfig`: Manage ~/.openclaw/openclaw.json
+ *   - `startOpenClaw`: Set selected model as default in OpenClaw config (remote, no launch)
+ *   - `filterByTier`: Filter models by tier letter prefix (S, A, B, C)
  *   - `main`: Orchestrates CLI flow, wizard, ping loops, animation, and output
  *
  *   📦 Dependencies:
@@ -45,13 +51,22 @@
  *   - API key stored in ~/.free-coding-models
  *   - Models loaded from sources.js (extensible for new providers)
  *   - OpenCode config: ~/.config/opencode/opencode.json
- *   - Ping timeout: 6s per attempt, max 2 retries (12s total)
- *   - Ping interval: 10 seconds (continuous monitoring mode)
+ *   - OpenClaw config: ~/.openclaw/openclaw.json
+ *   - Ping timeout: 15s per attempt
+ *   - Ping interval: 2 seconds (continuous monitoring mode)
  *   - Animation: 12 FPS with braille spinners
- *   - Reliability: Green → Yellow → Orange → Red → Black (degrades with instability)
+ *
+ *   🚀 CLI flags:
+ *   - (no flag): Show startup menu → choose OpenCode or OpenClaw
+ *   - --opencode: OpenCode mode (launch with selected model)
+ *   - --openclaw: OpenClaw mode (set selected model as default in OpenClaw)
+ *   - --best: Show only top-tier models (A+, S, S+)
+ *   - --fiable: Analyze 10s and output the most reliable model
+ *   - --tier S/A/B/C: Filter models by tier letter (S=S+/S, A=A+/A/A-, B=B+/B, C=C)
  *
  *   @see {@link https://build.nvidia.com} NVIDIA API key generation
  *   @see {@link https://github.com/opencode-ai/opencode} OpenCode repository
+ *   @see {@link https://openclaw.ai} OpenClaw documentation
  */
 
 import chalk from 'chalk'
@@ -107,6 +122,78 @@ async function promptApiKey() {
       }
       resolve(key || null)
     })
+  })
+}
+
+// ─── Startup mode selection menu ──────────────────────────────────────────────
+// 📖 Shown at startup when neither --opencode nor --openclaw flag is given.
+// 📖 Simple arrow-key selector in normal terminal (not alt screen).
+// 📖 Returns 'opencode' or 'openclaw'.
+async function promptModeSelection() {
+  const options = [
+    {
+      label: 'OpenCode',
+      icon: '💻',
+      description: 'Press Enter on a model → launch OpenCode with it as default',
+    },
+    {
+      label: 'OpenClaw',
+      icon: '🦞',
+      description: 'Press Enter on a model → set it as default in OpenClaw config',
+    },
+  ]
+
+  return new Promise((resolve) => {
+    let selected = 0
+
+    // 📖 Render the menu to stdout (clear + redraw)
+    const render = () => {
+      process.stdout.write('\x1b[2J\x1b[H') // clear screen + cursor home
+      console.log()
+      console.log(chalk.bold('  ⚡ Free Coding Models') + chalk.dim(' — Choose your tool'))
+      console.log()
+      for (let i = 0; i < options.length; i++) {
+        const isSelected = i === selected
+        const bullet = isSelected ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
+        const label = isSelected
+          ? chalk.bold.white(options[i].icon + ' ' + options[i].label)
+          : chalk.dim(options[i].icon + ' ' + options[i].label)
+        const desc = chalk.dim('  ' + options[i].description)
+        console.log(bullet + label)
+        console.log(chalk.dim('       ' + options[i].description))
+        console.log()
+      }
+      console.log(chalk.dim('  ↑↓ Navigate  •  Enter Select  •  Ctrl+C Exit'))
+      console.log()
+    }
+
+    render()
+
+    readline.emitKeypressEvents(process.stdin)
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
+
+    const onKey = (_str, key) => {
+      if (!key) return
+      if (key.ctrl && key.name === 'c') {
+        if (process.stdin.isTTY) process.stdin.setRawMode(false)
+        process.stdin.removeListener('keypress', onKey)
+        process.exit(0)
+      }
+      if (key.name === 'up' && selected > 0) {
+        selected--
+        render()
+      } else if (key.name === 'down' && selected < options.length - 1) {
+        selected++
+        render()
+      } else if (key.name === 'return') {
+        if (process.stdin.isTTY) process.stdin.setRawMode(false)
+        process.stdin.removeListener('keypress', onKey)
+        process.stdin.pause()
+        resolve(selected === 0 ? 'opencode' : 'openclaw')
+      }
+    }
+
+    process.stdin.on('keypress', onKey)
   })
 }
 
@@ -181,7 +268,7 @@ const VERDICT_ORDER = ['Perfect', 'Normal', 'Slow', 'Very Slow', 'Overloaded', '
 const getVerdict = (r) => {
   const avg = getAvg(r)
   const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p.code === '200')
-  
+
   // 📖 429 = rate limited = Overloaded
   if (r.httpCode === '429') return 'Overloaded'
   if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) return 'Unstable'
@@ -207,7 +294,7 @@ const getUptime = (r) => {
 const sortResults = (results, sortColumn, sortDirection) => {
   return [...results].sort((a, b) => {
     let cmp = 0
-    
+
     switch (sortColumn) {
       case 'rank':
         cmp = a.idx - b.idx
@@ -245,12 +332,13 @@ const sortResults = (results, sortColumn, sortDirection) => {
         cmp = getUptime(a) - getUptime(b)
         break
     }
-    
+
     return sortDirection === 'asc' ? cmp : -cmp
   })
 }
 
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now()) {
+// 📖 renderTable: mode param controls footer hint text (opencode vs openclaw)
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode') {
   const up      = results.filter(r => r.status === 'up').length
   const down    = results.filter(r => r.status === 'down').length
   const timeout = results.filter(r => r.status === 'timeout').length
@@ -266,6 +354,11 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : pendingPings > 0
       ? chalk.dim(`pinging — ${pendingPings} in flight…`)
       : chalk.dim(`next ping ${secondsUntilNext}s`)
+
+  // 📖 Mode badge shown in header so user knows what Enter will do
+  const modeBadge = mode === 'openclaw'
+    ? chalk.bold.rgb(255, 100, 50)(' [🦞 OpenClaw]')
+    : chalk.bold.rgb(0, 200, 255)(' [💻 OpenCode]')
 
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
@@ -283,7 +376,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
   const lines = [
     '',
-    `  ${chalk.bold('⚡ Free Coding Models')}   ` +
+    `  ${chalk.bold('⚡ Free Coding Models')}${modeBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
       chalk.yellow(`⏱ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
@@ -295,7 +388,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 NOTE: padEnd on chalk strings counts ANSI codes, breaking alignment
   // 📖 Solution: build plain text first, then colorize
   const dir = sortDirection === 'asc' ? '↑' : '↓'
-  
+
   const rankH    = 'Rank'
   const tierH    = 'Tier'
   const originH  = 'Origin'
@@ -305,7 +398,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const statusH  = sortColumn === 'status' ? dir + ' Status' : 'Status'
   const verdictH = sortColumn === 'verdict' ? dir + ' Verdict' : 'Verdict'
   const uptimeH  = sortColumn === 'uptime' ? dir + ' Up%' : 'Up%'
-  
+
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = chalk.dim(rankH.padEnd(W_RANK))
   const tierH_c    = chalk.dim(tierH.padEnd(W_TIER))
@@ -316,13 +409,13 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const statusH_c  = sortColumn === 'status' ? chalk.bold.cyan(statusH.padEnd(W_STATUS)) : chalk.dim(statusH.padEnd(W_STATUS))
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : chalk.dim(verdictH.padEnd(W_VERDICT))
   const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padStart(W_UPTIME)) : chalk.dim(uptimeH.padStart(W_UPTIME))
-  
+
   // 📖 Header with proper spacing
   lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + originH_c + '  ' + modelH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + statusH_c + '  ' + verdictH_c + '  ' + uptimeH_c)
-  
+
   // 📖 Separator line
   lines.push(
-    '  ' + 
+    '  ' +
     chalk.dim('─'.repeat(W_RANK)) + '  ' +
     chalk.dim('─'.repeat(W_TIER)) + '  ' +
     '─'.repeat(W_SOURCE) + '  ' +
@@ -337,9 +430,9 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   for (let i = 0; i < sorted.length; i++) {
     const r = sorted[i]
     const tierFn = TIER_COLOR[r.tier] ?? (t => chalk.white(t))
-    
+
     const isCursor = cursor !== null && i === cursor
-    
+
     // 📖 Left-aligned columns - pad plain text first, then colorize
     const num = chalk.dim(String(r.idx).padEnd(W_RANK))
     const tier = tierFn(r.tier.padEnd(W_TIER))
@@ -452,7 +545,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
     // 📖 Build row with double space between columns
     const row = '  ' + num + '  ' + tier + '  ' + source + '  ' + name + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
-    
+
     if (isCursor) {
       lines.push(chalk.bgRgb(139, 0, 139)(row))
     } else {
@@ -462,7 +555,12 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
   lines.push('')
   const intervalSec = Math.round(pingInterval / 1000)
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  Enter Select  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  Ctrl+C Exit`))
+
+  // 📖 Footer hints adapt based on active mode
+  const actionHint = mode === 'openclaw'
+    ? chalk.rgb(255, 100, 50)('Enter→SetOpenClaw')
+    : chalk.rgb(0, 200, 255)('Enter→OpenCode')
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/T/O/M/P/A/S/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  Ctrl+C Exit`))
   lines.push('')
   return lines.join('\n')
 }
@@ -482,9 +580,9 @@ async function ping(apiKey, modelId) {
     return { code: String(resp.status), ms: Math.round(performance.now() - t0) }
   } catch (err) {
     const isTimeout = err.name === 'AbortError'
-    return { 
-      code: isTimeout ? '000' : 'ERR', 
-      ms: isTimeout ? 'TIMEOUT' : Math.round(performance.now() - t0) 
+    return {
+      code: isTimeout ? '000' : 'ERR',
+      ms: isTimeout ? 'TIMEOUT' : Math.round(performance.now() - t0)
     }
   } finally {
     clearTimeout(timer)
@@ -520,7 +618,7 @@ function checkNvidiaNimConfig() {
   if (!config.provider) return false
   // 📖 Check for nvidia/nim provider by key name or display name (case-insensitive)
   const providerKeys = Object.keys(config.provider)
-  return providerKeys.some(key => 
+  return providerKeys.some(key =>
     key === 'nvidia' || key === 'nim' ||
     config.provider[key]?.name?.toLowerCase().includes('nvidia') ||
     config.provider[key]?.name?.toLowerCase().includes('nim')
@@ -533,38 +631,38 @@ function checkNvidiaNimConfig() {
 // 📖 Model format: { modelId, label, tier }
 async function startOpenCode(model) {
   const hasNim = checkNvidiaNimConfig()
-  
+
   if (hasNim) {
     // 📖 NVIDIA NIM already configured - launch with model flag
     console.log(chalk.green(`  🚀 Setting ${chalk.bold(model.label)} as default…`))
     console.log(chalk.dim(`  Model: nvidia/${model.modelId}`))
     console.log()
-    
+
     const config = loadOpenCodeConfig()
     const backupPath = `${OPENCODE_CONFIG}.backup-${Date.now()}`
-    
+
     // 📖 Backup current config
     if (existsSync(OPENCODE_CONFIG)) {
       copyFileSync(OPENCODE_CONFIG, backupPath)
       console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
     }
-    
+
     // 📖 Update default model to nvidia/model_id
     config.model = `nvidia/${model.modelId}`
     saveOpenCodeConfig(config)
-    
+
     console.log(chalk.green(`  ✓ Default model set to: nvidia/${model.modelId}`))
     console.log()
     console.log(chalk.dim('  Starting OpenCode…'))
     console.log()
-    
+
     // 📖 Launch OpenCode and wait for it
     const { spawn } = await import('child_process')
     const child = spawn('opencode', [], {
       stdio: 'inherit',
       shell: false
     })
-    
+
     // 📖 Wait for OpenCode to exit
     await new Promise((resolve, reject) => {
       child.on('exit', resolve)
@@ -576,7 +674,7 @@ async function startOpenCode(model) {
     console.log()
     console.log(chalk.dim('  Starting OpenCode with installation prompt…'))
     console.log()
-    
+
     const installPrompt = `Please install NVIDIA NIM provider in OpenCode by adding this to ~/.config/opencode/opencode.json:
 
 {
@@ -595,24 +693,111 @@ async function startOpenCode(model) {
 Then set env var: export NVIDIA_API_KEY=your_key_here
 
 After installation, you can use: opencode --model nvidia/${model.modelId}`
-    
+
     console.log(chalk.cyan(installPrompt))
     console.log()
     console.log(chalk.dim('  Starting OpenCode…'))
     console.log()
-    
+
     const { spawn } = await import('child_process')
     const child = spawn('opencode', [], {
       stdio: 'inherit',
       shell: false
     })
-    
+
     // 📖 Wait for OpenCode to exit
     await new Promise((resolve, reject) => {
       child.on('exit', resolve)
       child.on('error', reject)
     })
   }
+}
+
+// ─── OpenClaw integration ──────────────────────────────────────────────────────
+// 📖 OpenClaw config: ~/.openclaw/openclaw.json (JSON format, may be JSON5 in newer versions)
+// 📖 To set a model: set agents.defaults.model.primary = "nvidia/model-id"
+// 📖 Providers section uses baseUrl + apiKey + api: "openai-completions" format
+// 📖 See: https://docs.openclaw.ai/gateway/configuration
+const OPENCLAW_CONFIG = join(homedir(), '.openclaw', 'openclaw.json')
+
+function loadOpenClawConfig() {
+  if (!existsSync(OPENCLAW_CONFIG)) return {}
+  try {
+    // 📖 JSON.parse works for standard JSON; OpenClaw may use JSON5 but base config is valid JSON
+    return JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function saveOpenClawConfig(config) {
+  const dir = join(homedir(), '.openclaw')
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+  writeFileSync(OPENCLAW_CONFIG, JSON.stringify(config, null, 2))
+}
+
+// 📖 startOpenClaw: sets the selected NVIDIA NIM model as default in OpenClaw config.
+// 📖 Also ensures the nvidia provider block is present with the NIM base URL.
+// 📖 Does NOT launch OpenClaw — OpenClaw runs as a daemon, so config changes are picked up on restart.
+async function startOpenClaw(model, apiKey) {
+  console.log(chalk.rgb(255, 100, 50)(`  🦞 Setting ${chalk.bold(model.label)} as OpenClaw default…`))
+  console.log(chalk.dim(`  Model: nvidia/${model.modelId}`))
+  console.log()
+
+  const config = loadOpenClawConfig()
+
+  // 📖 Backup existing config before touching it
+  if (existsSync(OPENCLAW_CONFIG)) {
+    const backupPath = `${OPENCLAW_CONFIG}.backup-${Date.now()}`
+    copyFileSync(OPENCLAW_CONFIG, backupPath)
+    console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
+  }
+
+  // 📖 Ensure providers section exists with nvidia NIM block
+  // 📖 Only injects if not already present - we don't overwrite existing provider config
+  if (!config.providers) config.providers = {}
+  if (!config.providers.nvidia) {
+    config.providers.nvidia = {
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      // 📖 Store key reference as env var name — avoid hardcoding key in config file
+      apiKey: apiKey || process.env.NVIDIA_API_KEY || 'YOUR_NVIDIA_API_KEY',
+      api: 'openai-completions',
+      models: [],
+    }
+    console.log(chalk.dim('  ➕ Added nvidia provider block to OpenClaw config'))
+  }
+
+  // 📖 Ensure the chosen model is in the nvidia models array
+  const modelsArr = config.providers.nvidia.models
+  const modelEntry = {
+    id: model.modelId,
+    name: model.label,
+    contextWindow: 128000,
+    maxTokens: 8192,
+  }
+  const alreadyListed = modelsArr.some(m => m.id === model.modelId)
+  if (!alreadyListed) {
+    modelsArr.push(modelEntry)
+    console.log(chalk.dim(`  ➕ Added ${model.label} to nvidia models list`))
+  }
+
+  // 📖 Set as the default primary model for all agents
+  if (!config.agents) config.agents = {}
+  if (!config.agents.defaults) config.agents.defaults = {}
+  if (!config.agents.defaults.model) config.agents.defaults.model = {}
+  config.agents.defaults.model.primary = `nvidia/${model.modelId}`
+
+  saveOpenClawConfig(config)
+
+  console.log(chalk.rgb(255, 140, 0)(`  ✓ Default model set to: nvidia/${model.modelId}`))
+  console.log()
+  console.log(chalk.dim('  📄 Config updated: ' + OPENCLAW_CONFIG))
+  console.log()
+  console.log(chalk.dim('  💡 Restart OpenClaw for changes to take effect:'))
+  console.log(chalk.dim('     openclaw restart') + chalk.dim('  or  ') + chalk.dim('openclaw models set nvidia/' + model.modelId))
+  console.log()
 }
 
 // ─── Helper function to find best model after analysis ────────────────────────
@@ -623,18 +808,18 @@ function findBestModel(results) {
     const avgB = getAvg(b)
     const uptimeA = getUptime(a)
     const uptimeB = getUptime(b)
-    
+
     // 📖 Priority 1: Models that are up (status === 'up')
     if (a.status === 'up' && b.status !== 'up') return -1
     if (a.status !== 'up' && b.status === 'up') return 1
-    
+
     // 📖 Priority 2: Fastest average ping
     if (avgA !== avgB) return avgA - avgB
-    
+
     // 📖 Priority 3: Highest uptime percentage
     return uptimeB - uptimeA
   })
-  
+
   return sorted.length > 0 ? sorted[0] : null
 }
 
@@ -642,17 +827,17 @@ function findBestModel(results) {
 async function runFiableMode(apiKey) {
   console.log(chalk.cyan('  ⚡ Analyzing models for reliability (10 seconds)...'))
   console.log()
-  
+
   let results = MODELS.map(([modelId, label, tier], i) => ({
     idx: i + 1, modelId, label, tier,
     status: 'pending',
     pings: [],
     httpCode: null,
   }))
-  
+
   const startTime = Date.now()
   const analysisDuration = 10000 // 10 seconds
-  
+
   // 📖 Run initial pings
   const pingPromises = results.map(r => ping(apiKey, r.modelId).then(({ code, ms }) => {
     r.pings.push({ ms, code })
@@ -665,23 +850,23 @@ async function runFiableMode(apiKey) {
       r.httpCode = code
     }
   }))
-  
+
   await Promise.allSettled(pingPromises)
-  
+
   // 📖 Continue pinging for the remaining time
   const remainingTime = Math.max(0, analysisDuration - (Date.now() - startTime))
   if (remainingTime > 0) {
     await new Promise(resolve => setTimeout(resolve, remainingTime))
   }
-  
+
   // 📖 Find best model
   const best = findBestModel(results)
-  
+
   if (!best) {
     console.log(chalk.red('  ✖ No reliable model found'))
     process.exit(1)
   }
-  
+
   // 📖 Output in format: provider/name
   const provider = 'nvidia' // Always NVIDIA NIM for now
   console.log(chalk.green(`  ✓ Most reliable model:`))
@@ -691,18 +876,41 @@ async function runFiableMode(apiKey) {
   console.log(chalk.dim(`    Avg ping: ${getAvg(best)}ms`))
   console.log(chalk.dim(`    Uptime: ${getUptime(best)}%`))
   console.log(chalk.dim(`    Status: ${best.status === 'up' ? '✅ UP' : '❌ DOWN'}`))
-  
+
   process.exit(0)
+}
+
+// ─── Tier filter helper ────────────────────────────────────────────────────────
+// 📖 Maps a single tier letter (S, A, B, C) to the full set of matching tier strings.
+// 📖 --tier S → includes S+ and S
+// 📖 --tier A → includes A+, A, A-
+// 📖 --tier B → includes B+, B
+// 📖 --tier C → includes C only
+const TIER_LETTER_MAP = {
+  'S': ['S+', 'S'],
+  'A': ['A+', 'A', 'A-'],
+  'B': ['B+', 'B'],
+  'C': ['C'],
+}
+
+function filterByTier(results, tierLetter) {
+  const letter = tierLetter.toUpperCase()
+  const allowed = TIER_LETTER_MAP[letter]
+  if (!allowed) {
+    console.error(chalk.red(`  ✖ Unknown tier "${tierLetter}". Valid tiers: S, A, B, C`))
+    process.exit(1)
+  }
+  return results.filter(r => allowed.includes(r.tier))
 }
 
 async function main() {
   // 📖 Parse CLI arguments properly
   const args = process.argv.slice(2)
-  
+
   // 📖 Extract API key (first non-flag argument) and flags
   let apiKey = null
   const flags = []
-  
+
   for (const arg of args) {
     if (arg.startsWith('--')) {
       flags.push(arg.toLowerCase())
@@ -710,16 +918,26 @@ async function main() {
       apiKey = arg
     }
   }
-  
+
   // 📖 Priority: CLI arg > env var > saved config > wizard
   if (!apiKey) {
     apiKey = process.env.NVIDIA_API_KEY || loadApiKey()
   }
-  
+
   // 📖 Check for CLI flags
-  const bestMode = flags.includes('--best')
-  const fiableMode = flags.includes('--fiable') || flags.includes('--fiable') // Support both
-  
+  const bestMode    = flags.includes('--best')
+  const fiableMode  = flags.includes('--fiable')
+  const openCodeMode  = flags.includes('--opencode')
+  const openClawMode  = flags.includes('--openclaw')
+
+  // 📖 Parse --tier X flag (e.g. --tier S, --tier A)
+  // 📖 Find "--tier" in flags array, then get the next raw arg as the tier value
+  let tierFilter = null
+  const tierIdx = args.findIndex(a => a.toLowerCase() === '--tier')
+  if (tierIdx !== -1 && args[tierIdx + 1] && !args[tierIdx + 1].startsWith('--')) {
+    tierFilter = args[tierIdx + 1].toUpperCase()
+  }
+
   if (!apiKey) {
     apiKey = await promptApiKey()
     if (!apiKey) {
@@ -730,10 +948,24 @@ async function main() {
       process.exit(1)
     }
   }
-  
+
   // 📖 Handle fiable mode first (it exits after analysis)
   if (fiableMode) {
     await runFiableMode(apiKey)
+  }
+
+  // 📖 Determine active mode:
+  //   --opencode → opencode
+  //   --openclaw → openclaw
+  //   neither    → show interactive startup menu
+  let mode
+  if (openClawMode) {
+    mode = 'openclaw'
+  } else if (openCodeMode) {
+    mode = 'opencode'
+  } else {
+    // 📖 No mode flag given — ask user with the startup menu
+    mode = await promptModeSelection()
   }
 
   // 📖 Filter models to only show top tiers if BEST mode is active
@@ -743,26 +975,32 @@ async function main() {
     pings: [],  // 📖 All ping results (ms or 'TIMEOUT')
     httpCode: null,
   }))
-  
+
   if (bestMode) {
     results = results.filter(r => r.tier === 'S+' || r.tier === 'S' || r.tier === 'A+')
+  }
+
+  // 📖 Apply tier letter filter if --tier X was given
+  if (tierFilter) {
+    results = filterByTier(results, tierFilter)
   }
 
   // 📖 Add interactive selection state - cursor index and user's choice
   // 📖 sortColumn: 'rank'|'tier'|'origin'|'model'|'ping'|'avg'|'status'|'verdict'|'uptime'
   // 📖 sortDirection: 'asc' (default) or 'desc'
-  // 📖 pingInterval: current interval in ms (default 5000, adjustable with W/X keys)
-  const state = { 
-    results, 
-    pendingPings: 0, 
-    frame: 0, 
-    cursor: 0, 
+  // 📖 pingInterval: current interval in ms (default 2000, adjustable with W/X keys)
+  const state = {
+    results,
+    pendingPings: 0,
+    frame: 0,
+    cursor: 0,
     selectedModel: null,
     sortColumn: 'avg',
     sortDirection: 'asc',
-    pingInterval: PING_INTERVAL,  // 📖 Track current interval for C/V keys
-    lastPingTime: Date.now(),  // 📖 Track when last ping cycle started
-    fiableMode  // 📖 Pass fiable mode to state
+    pingInterval: PING_INTERVAL,  // 📖 Track current interval for W/X keys
+    lastPingTime: Date.now(),     // 📖 Track when last ping cycle started
+    fiableMode,                   // 📖 Pass fiable mode to state
+    mode,                         // 📖 'opencode' or 'openclaw' — controls Enter action
   }
 
   // 📖 Enter alternate screen — animation runs here, zero scrollback pollution
@@ -782,18 +1020,18 @@ async function main() {
   // 📖 Use readline with keypress event for arrow key handling
   process.stdin.setEncoding('utf8')
   process.stdin.resume()
-  
+
   let userSelected = null
-  
+
   const onKeyPress = async (str, key) => {
     if (!key) return
-    
-    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, P=ping, A=avg, S=status, V=verdict, L=reliability
+
+    // 📖 Sorting keys: R=rank, T=tier, O=origin, M=model, P=ping, A=avg, S=status, V=verdict, U=uptime
     const sortKeys = {
       'r': 'rank', 't': 'tier', 'o': 'origin', 'm': 'model',
       'p': 'ping', 'a': 'avg', 's': 'status', 'v': 'verdict', 'u': 'uptime'
     }
-    
+
     if (sortKeys[key.name]) {
       const col = sortKeys[key.name]
       // 📖 Toggle direction if same column, otherwise reset to asc
@@ -805,98 +1043,101 @@ async function main() {
       }
       return
     }
-    
+
     // 📖 Interval adjustment keys: W=decrease (faster), X=increase (slower)
     // 📖 Minimum 1s, maximum 60s
     if (key.name === 'w') {
       state.pingInterval = Math.max(1000, state.pingInterval - 1000)
       return
     }
-    
+
     if (key.name === 'x') {
       state.pingInterval = Math.min(60000, state.pingInterval + 1000)
       return
     }
-    
+
     if (key.name === 'up') {
       if (state.cursor > 0) {
         state.cursor--
       }
       return
     }
-    
+
     if (key.name === 'down') {
       if (state.cursor < results.length - 1) {
         state.cursor++
       }
       return
     }
-    
+
     if (key.name === 'c' && key.ctrl) { // Ctrl+C
       exit(0)
       return
     }
-    
+
     if (key.name === 'return') { // Enter
       // 📖 Use the same sorting as the table display
       const sorted = sortResults(results, state.sortColumn, state.sortDirection)
       const selected = sorted[state.cursor]
       // 📖 Allow selecting ANY model (even timeout/down) - user knows what they're doing
-      if (true) {
-        userSelected = { modelId: selected.modelId, label: selected.label, tier: selected.tier }
-        // 📖 Stop everything and launch OpenCode immediately
-        clearInterval(ticker)
-        clearTimeout(state.pingIntervalObj)
-        readline.emitKeypressEvents(process.stdin)
-        process.stdin.setRawMode(true)
-        process.stdin.pause()
-        process.stdin.removeListener('keypress', onKeyPress)
-        process.stdout.write(ALT_LEAVE)
-        
-        // 📖 Show selection with status
-        if (selected.status === 'timeout') {
-          console.log(chalk.yellow(`  ⚠ Selected: ${selected.label} (currently timing out)`))
-        } else if (selected.status === 'down') {
-          console.log(chalk.red(`  ⚠ Selected: ${selected.label} (currently down)`))
-        } else {
-          console.log(chalk.cyan(`  ✓ Selected: ${selected.label}`))
-        }
-        console.log()
-        
-        // 📖 Wait for OpenCode to finish before exiting
-        await startOpenCode(userSelected)
-        process.exit(0)
+      userSelected = { modelId: selected.modelId, label: selected.label, tier: selected.tier }
+
+      // 📖 Stop everything and act on selection immediately
+      clearInterval(ticker)
+      clearTimeout(state.pingIntervalObj)
+      readline.emitKeypressEvents(process.stdin)
+      process.stdin.setRawMode(true)
+      process.stdin.pause()
+      process.stdin.removeListener('keypress', onKeyPress)
+      process.stdout.write(ALT_LEAVE)
+
+      // 📖 Show selection with status
+      if (selected.status === 'timeout') {
+        console.log(chalk.yellow(`  ⚠ Selected: ${selected.label} (currently timing out)`))
+      } else if (selected.status === 'down') {
+        console.log(chalk.red(`  ⚠ Selected: ${selected.label} (currently down)`))
+      } else {
+        console.log(chalk.cyan(`  ✓ Selected: ${selected.label}`))
       }
+      console.log()
+
+      // 📖 Dispatch to the correct integration based on active mode
+      if (state.mode === 'openclaw') {
+        await startOpenClaw(userSelected, apiKey)
+      } else {
+        await startOpenCode(userSelected)
+      }
+      process.exit(0)
     }
   }
-  
+
   // 📖 Enable keypress events on stdin
   readline.emitKeypressEvents(process.stdin)
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true)
   }
-  
+
   process.stdin.on('keypress', onKeyPress)
 
   // 📖 Animation loop: clear alt screen + redraw table at FPS with cursor
   const ticker = setInterval(() => {
     state.frame++
-    process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime))
+    process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode))
   }, Math.round(1000 / FPS))
 
-  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime))
+  process.stdout.write(ALT_CLEAR + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode))
 
-  // ── Continuous ping loop — ping all models every 10 seconds forever ──────────
-  
+  // ── Continuous ping loop — ping all models every N seconds forever ──────────
+
   // 📖 Single ping function that updates result
   const pingModel = async (r) => {
     const { code, ms } = await ping(apiKey, r.modelId)
-    
+
     // 📖 Store ping result as object with ms and code
     // 📖 ms = actual response time (even for errors like 429)
     // 📖 code = HTTP status code ('200', '429', '500', '000' for timeout)
     r.pings.push({ ms, code })
-    
+
     // 📖 Update status based on latest ping
     if (code === '200') {
       r.status = 'up'
@@ -910,23 +1151,23 @@ async function main() {
 
   // 📖 Initial ping of all models
   const initialPing = Promise.all(results.map(r => pingModel(r)))
-  
+
   // 📖 Continuous ping loop with dynamic interval (adjustable with W/X keys)
   const schedulePing = () => {
     state.pingIntervalObj = setTimeout(async () => {
       state.lastPingTime = Date.now()
-      
+
       results.forEach(r => {
         pingModel(r).catch(() => {
           // Individual ping failures don't crash the loop
         })
       })
-      
+
       // 📖 Schedule next ping with current interval
       schedulePing()
     }, state.pingInterval)
   }
-  
+
   // 📖 Start the ping loop
   state.pingIntervalObj = null
   schedulePing()
