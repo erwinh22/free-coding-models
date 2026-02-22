@@ -1217,6 +1217,14 @@ function filterByTierOrExit(results, tierLetter) {
 }
 
 async function main() {
+  const cliArgs = parseArgs(process.argv)
+
+  // Validate --tier early, before entering alternate screen
+  if (cliArgs.tierFilter && !TIER_LETTER_MAP[cliArgs.tierFilter]) {
+    console.error(chalk.red(`  Unknown tier "${cliArgs.tierFilter}". Valid tiers: S, A, B, C`))
+    process.exit(1)
+  }
+
   // 📖 Load JSON config (auto-migrates old plain-text ~/.free-coding-models if needed)
   const config = loadConfig()
 
@@ -1452,6 +1460,14 @@ async function main() {
     state.settingsTestResults[providerKey] = code === '200' ? 'ok' : 'fail'
   }
 
+  // Apply CLI --tier filter if provided
+  if (cliArgs.tierFilter) {
+    const allowed = TIER_LETTER_MAP[cliArgs.tierFilter]
+    state.results.forEach(r => {
+      r.hidden = !allowed.includes(r.tier)
+    })
+  }
+
   // 📖 Setup keyboard input for interactive selection during pings
   // 📖 Use readline with keypress event for arrow key handling
   process.stdin.setEncoding('utf8')
@@ -1566,7 +1582,7 @@ async function main() {
       'l': 'ping', 'a': 'avg', 's': 'swe', 'n': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
-    if (sortKeys[key.name]) {
+    if (sortKeys[key.name] && !key.ctrl) {
       const col = sortKeys[key.name]
       // 📖 Toggle direction if same column, otherwise reset to asc
       if (state.sortColumn === col) {

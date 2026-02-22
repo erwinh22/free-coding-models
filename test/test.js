@@ -385,6 +385,11 @@ describe('parseArgs', () => {
     assert.equal(parseArgs(argv('--tier', '--best')).tierFilter, null) // 📖 next arg is a flag
   })
 
+  it('does not capture --tier value as apiKey', () => {
+    assert.equal(parseArgs(argv('--tier', 'S')).apiKey, null)
+    assert.equal(parseArgs(argv('--opencode', '--tier', 'A')).apiKey, null)
+  })
+
   it('handles multiple flags together', () => {
     const result = parseArgs(argv('nvapi-key', '--opencode', '--best', '--tier', 'S'))
     assert.equal(result.apiKey, 'nvapi-key')
