@@ -2,6 +2,14 @@
 
 ---
 
+## 0.1.27 — 2026-02-22
+
+### Changed
+- **Footer redesign**: All links now on one line with clickable text: "Join our Discord!" and "Read the docs on GitHub"
+- **Improved UX**: Links use same clickable format as author name for consistent user experience
+
+---
+
 ## 0.1.26 — 2026-02-22
 
 ### Changed
