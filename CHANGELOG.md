@@ -2,6 +2,14 @@
 
 ---
 
+## 0.1.34 — 2026-02-22
+
+### Changed
+- **Condition renamed to Health**: Renamed "Condition" column to "Health" for better clarity
+- **Keyboard shortcut update**: H key now sorts by Health (instead of C for Condition)
+
+---
+
 ## 0.1.33 — 2026-02-22
 
 ### Fixed
