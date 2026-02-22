@@ -1217,6 +1217,14 @@ function filterByTierOrExit(results, tierLetter) {
 }
 
 async function main() {
+  const cliArgs = parseArgs(process.argv)
+
+  // Validate --tier early, before entering alternate screen
+  if (cliArgs.tierFilter && !TIER_LETTER_MAP[cliArgs.tierFilter]) {
+    console.error(chalk.red(`  Unknown tier "${cliArgs.tierFilter}". Valid tiers: S, A, B, C`))
+    process.exit(1)
+  }
+
   // 📖 Load JSON config (auto-migrates old plain-text ~/.free-coding-models if needed)
   const config = loadConfig()
 
@@ -1450,6 +1458,14 @@ async function main() {
     state.settingsTestResults[providerKey] = 'pending'
     const { code } = await ping(testKey, testModel, src.url)
     state.settingsTestResults[providerKey] = code === '200' ? 'ok' : 'fail'
+  }
+
+  // Apply CLI --tier filter if provided
+  if (cliArgs.tierFilter) {
+    const allowed = TIER_LETTER_MAP[cliArgs.tierFilter]
+    state.results.forEach(r => {
+      r.hidden = !allowed.includes(r.tier)
+    })
   }
 
   // 📖 Setup keyboard input for interactive selection during pings
