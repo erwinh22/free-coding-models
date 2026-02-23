@@ -532,7 +532,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     '',
     `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}${originBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
-      chalk.yellow(`⏱ ${timeout}`) + chalk.dim(' timeout  ') +
+      chalk.yellow(`⏳ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
       phase,
     '',
