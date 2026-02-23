@@ -615,5 +615,6 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 
 For questions or issues, open a [GitHub issue](https://github.com/vava-nessa/free-coding-models/issues).
 
-💬 Let's talk about the project on Discord: https://discord.gg/5MbTnDC3Md
-📚 Read the docs on GitHub: https://github.com/vava-nessa/free-coding-models#readme ⚠️ free-coding-models is a BETA TUI — expect rough edges and occasional crashes.
+💬 Let's talk about the projet on Discord: https://discord.gg/5MbTnDC3Md
+
+> ⚠️ **free-coding-models is a BETA TUI** — it might crash or have problems. Use at your own risk and feel free to report issues!
