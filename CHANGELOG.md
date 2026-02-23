@@ -2,6 +2,60 @@
 
 ---
 
+## 0.1.54
+
+### Added — Providers & Models
+
+**5 new providers** (9 total, 101 models):
+
+- **OpenRouter** — 8 free coding models via the `:free` quota tier (20 req/min, 50 req/day shared). Includes Qwen3 Coder, Step 3.5 Flash, DeepSeek R1 0528, GPT OSS 120B/20B, Nemotron Nano 30B, Llama 3.3 70B. Key prefix: `sk-or-`
+- **Mistral Codestral** — dedicated coding endpoint (`codestral.mistral.ai`), `codestral-latest` model, 30 req/min / 2 000 req/day. Separate API key from the main Mistral platform. Key prefix: `csk-`
+- **Hyperbolic** — $1 free trial credits. 10 models: Qwen3 Coder 480B, DeepSeek R1 0528, Kimi K2, GPT OSS 120B, Qwen3 235B, Qwen3 80B Instruct, DeepSeek V3 0324, Qwen2.5 Coder 32B, Llama 3.3 70B, Llama 3.1 405B. Key prefix: `eyJ`
+- **Scaleway** — 1 million free tokens. 7 models: Devstral 2 123B, Qwen3 235B, GPT OSS 120B, Qwen3 Coder 30B, Llama 3.3 70B, R1 Distill 70B, Mistral Small 3.2. Key prefix: `scw-`
+- **Google AI Studio** — free Gemma 3 models (14 400 req/day, 30 req/min). Gemma 3 27B / 12B / 4B via the OpenAI-compatible `generativelanguage.googleapis.com/v1beta/openai` endpoint. Key prefix: `AIza`
+
+**New models in existing providers:**
+
+- **Groq**: GPT OSS 120B (`openai/gpt-oss-120b`), GPT OSS 20B (`openai/gpt-oss-20b`), Qwen3 32B (`qwen/qwen3-32b`)
+- **Cerebras**: GLM 4.6 (`glm-4.6`) from Z.ai — 10 req/min, 100 req/day
+- **SambaNova**: DeepSeek V3.1 Terminus (`deepseek-ai/DeepSeek-V3.1-Terminus`, S tier 68.4%)
+
+### Added — TUI Features
+
+- **`N` key — Origin/provider filter**: cycles through All → NIM → Groq → Cerebras → SambaNova → OpenRouter → Codestral → Hyperbolic → Scaleway → Google AI → All, mirroring how `T` cycles tiers. The active provider is shown as a badge in the header. The Origin column header now reads `Origin(N)` and highlights in blue when a filter is active.
+- **`C` key — Sort by context window**: the context-window sort was previously on `N`; moved to `C` (mnemonic: Context) to free up `N` for the origin filter.
+- **`K` key — Help overlay**: press `K` (or `Esc`) to open/close a full keyboard shortcut reference listing every key and what it does, rendered in the alt-screen buffer without leaving the TUI.
+- **`Esc` closes help and settings**: pressing Escape now dismisses both the `K` help overlay and the `P` settings screen. The help overlay intercepts Esc before the settings handler so there is no key conflict.
+
+### Changed — README & UI
+
+- Provider count badge updated: **4 → 9 providers**
+- Model count badge updated: **67 → 101 models**
+- Requirements section lists all 9 providers with their signup URLs
+- Discord header block replaced with a plain `💬 Let's talk about the project on Discord` link
+- Support section reformatted: GitHub issues link + Discord link on separate lines + docs link with inline BETA warning (`⚠️ free-coding-models is a BETA TUI — expect rough edges and occasional crashes`)
+- Footer hint line updated: `T Tier  •  N Origin  •  … C` replaces old `N` in sort hint; `K Help` added
+
+### Technical
+
+- `sources.js`: 5 new named exports; `sources` object extended to 9 entries; `@exports` JSDoc updated
+- `lib/config.js`: `ENV_VARS` extended with `openrouter`, `codestral`, `hyperbolic`, `scaleway`, `googleai`; JSDoc config structure comment updated
+- `bin/free-coding-models.js`: first-run wizard extended to 9 providers; `ENV_VAR_NAMES` extended; OpenCode/OpenCode-Desktop provider blocks added for all 5 new providers (all use `@ai-sdk/openai-compatible` + baseURL); `ORIGIN_CYCLE` + `originFilterMode` state; `renderTable` signature gains `originFilterMode` parameter; `renderHelp()` function added; all `renderTable` call sites updated
+
+---
+
+## 0.1.53
+
+### Added
+
+- **SambaNova Cloud** as a new provider ($5 free trial, 3 months). 10 coding models: Qwen3 235B, DeepSeek R1 0528, DeepSeek V3.1, DeepSeek V3 0324, Llama 4 Maverick, GPT OSS 120B, Qwen3 32B, R1 Distill 70B, Llama 3.3 70B, Llama 3.1 8B. OpenAI-compatible endpoint at `api.sambanova.ai`. Key prefix: `sn-`
+- **Cerebras**: Qwen3 235B (`qwen-3-235b-a22b`), GPT OSS 120B (`gpt-oss-120b`), Llama 3.1 8B (`llama3.1-8b`)
+- **Groq**: Llama 3.1 8B (`llama-3.1-8b-instant`, 14 400 req/day)
+- Full OpenCode + OpenCode Desktop integration for SambaNova (`@ai-sdk/openai-compatible` provider block injected automatically on model select)
+- SambaNova added to first-run API key wizard and Settings screen (`P` key)
+
+---
+
 ## 0.1.52
 
 ### Fixed

@@ -2,14 +2,14 @@
   <img src="https://img.shields.io/npm/v/free-coding-models?color=76b900&label=npm&logo=npm" alt="npm version">
   <img src="https://img.shields.io/node/v/free-coding-models?color=76b900&logo=node.js" alt="node version">
   <img src="https://img.shields.io/npm/l/free-coding-models?color=76b900" alt="license">
-  <img src="https://img.shields.io/badge/models-53-76b900?logo=nvidia" alt="models count">
-  <img src="https://img.shields.io/badge/providers-3-blue" alt="providers count">
+  <img src="https://img.shields.io/badge/models-101-76b900?logo=nvidia" alt="models count">
+  <img src="https://img.shields.io/badge/providers-9-blue" alt="providers count">
 </p>
 
 <h1 align="center">free-coding-models</h1>
 
 <p align="center">
-  <strong>Want to contribute or discuss the project?</strong> Join our <a href="https://discord.gg/5MbTnDC3Md">Discord community</a>!
+  💬 <a href="https://discord.gg/5MbTnDC3Md">Let's talk about the project on Discord</a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 <p align="center">
   <strong>Find the fastest coding LLM models in seconds</strong><br>
-  <sub>Ping free models from NVIDIA NIM, Groq, and Cerebras in real-time — pick the best one for OpenCode, OpenClaw, or any AI coding assistant</sub>
+  <sub>Ping free models from NVIDIA NIM, Groq, Cerebras, and SambaNova in real-time — pick the best one for OpenCode, OpenClaw, or any AI coding assistant</sub>
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@
 ## ✨ Features
 
 - **🎯 Coding-focused** — Only LLM models optimized for code generation, not chat or vision
-- **🌐 Multi-provider** — 53 models from NVIDIA NIM, Groq, and Cerebras — all free to use
+- **🌐 Multi-provider** — 101 models from NVIDIA NIM, Groq, Cerebras, SambaNova, OpenRouter, Codestral, Hyperbolic, Scaleway, and Google AI — all free to use
 - **⚙️ Settings screen** — Press `P` to manage provider API keys, enable/disable providers, and test keys live
 - **🚀 Parallel pings** — All models tested simultaneously via native `fetch`
 - **📊 Real-time animation** — Watch latency appear live in alternate screen buffer
@@ -76,10 +76,16 @@ Before using `free-coding-models`, make sure you have:
    - **NVIDIA NIM** — [build.nvidia.com](https://build.nvidia.com) → Profile → API Keys → Generate
    - **Groq** — [console.groq.com/keys](https://console.groq.com/keys) → Create API Key
    - **Cerebras** — [cloud.cerebras.ai](https://cloud.cerebras.ai) → API Keys → Create
+   - **SambaNova** — [cloud.sambanova.ai/apis](https://cloud.sambanova.ai/apis) → API Keys → Create ($5 free trial, 3 months)
+   - **OpenRouter** — [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) → Create key (50 free req/day)
+   - **Mistral Codestral** — [codestral.mistral.ai](https://codestral.mistral.ai) → API Keys (30 req/min, 2000/day — phone required)
+   - **Hyperbolic** — [app.hyperbolic.ai/settings](https://app.hyperbolic.ai/settings) → API Keys ($1 free trial)
+   - **Scaleway** — [console.scaleway.com/iam/api-keys](https://console.scaleway.com/iam/api-keys) → IAM → API Keys (1M free tokens)
+   - **Google AI Studio** — [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → Get API key (free Gemma models, 14.4K req/day)
 3. **OpenCode** *(optional)* — [Install OpenCode](https://github.com/opencode-ai/opencode) to use the OpenCode integration
 4. **OpenClaw** *(optional)* — [Install OpenClaw](https://openclaw.ai) to use the OpenClaw integration
 
-> 💡 **Tip:** You don't need all three providers. One key is enough to get started. Add more later via the Settings screen (`P` key). Models without a key still show real latency (`🔑 NO KEY`) so you can evaluate providers before signing up.
+> 💡 **Tip:** You don't need all four providers. One key is enough to get started. Add more later via the Settings screen (`P` key). Models without a key still show real latency (`🔑 NO KEY`) so you can evaluate providers before signing up.
 
 ---
 
@@ -157,13 +163,13 @@ When you run `free-coding-models` without `--opencode` or `--openclaw`, you get 
 Use `↑↓` arrows to select, `Enter` to confirm. Then the TUI launches with your chosen mode shown in the header badge.
 
 **How it works:**
-1. **Ping phase** — All enabled models are pinged in parallel (up to 53 across 3 providers)
+1. **Ping phase** — All enabled models are pinged in parallel (up to 101 across 9 providers)
 2. **Continuous monitoring** — Models are re-pinged every 2 seconds forever
 3. **Real-time updates** — Watch "Latest", "Avg", and "Up%" columns update live
 4. **Select anytime** — Use ↑↓ arrows to navigate, press Enter on a model to act
 5. **Smart detection** — Automatically detects if NVIDIA NIM is configured in OpenCode or OpenClaw
 
-Setup wizard (first run — walks through all 3 providers):
+Setup wizard (first run — walks through all 9 providers):
 
 ```
   🔑 First-time setup — API keys
@@ -184,11 +190,16 @@ Setup wizard (first run — walks through all 3 providers):
     API Keys → Create
   Enter key (or Enter to skip):
 
+  ● SambaNova
+    Free key at: https://cloud.sambanova.ai/apis
+    API Keys → Create ($5 free trial, 3 months)
+  Enter key (or Enter to skip):
+
   ✅ 2 key(s) saved to ~/.free-coding-models.json
   You can add or change keys anytime with the P key in the TUI.
 ```
 
-You don't need all three — skip any provider by pressing Enter. At least one key is required.
+You don't need all four — skip any provider by pressing Enter. At least one key is required.
 
 ### Adding or changing keys later
 
@@ -246,7 +257,7 @@ CEREBRAS_API_KEY=csk_xxx free-coding-models
 
 ## 🤖 Coding Models
 
-**53 coding models** across 3 providers and 8 tiers, ranked by [SWE-bench Verified](https://www.swebench.com) — the industry-standard benchmark measuring real GitHub issue resolution. Scores are self-reported by providers unless noted.
+**101 coding models** across 9 providers and 8 tiers, ranked by [SWE-bench Verified](https://www.swebench.com) — the industry-standard benchmark measuring real GitHub issue resolution. Scores are self-reported by providers unless noted.
 
 ### NVIDIA NIM (44 models)
 
@@ -601,4 +612,8 @@ We welcome contributions! Feel free to open issues, submit pull requests, or get
 **A:** No — `free-coding-models` configures OpenClaw to use NVIDIA NIM's remote API, so models run on NVIDIA's infrastructure. No GPU or local setup required.
 
 ## 📧 Support
-For questions or issues, open a GitHub issue or join our community Discord: https://discord.gg/5MbTnDC3Md
+
+For questions or issues, open a [GitHub issue](https://github.com/vava-nessa/free-coding-models/issues).
+
+💬 Let's talk about the project on Discord: https://discord.gg/5MbTnDC3Md
+📚 Read the docs on GitHub: https://github.com/vava-nessa/free-coding-models#readme ⚠️ free-coding-models is a BETA TUI — expect rough edges and occasional crashes.

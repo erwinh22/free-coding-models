@@ -198,6 +198,54 @@ async function promptApiKey(config) {
       hint: 'API Keys → Create',
       prefix: 'csk_ / cauth_',
     },
+    {
+      key: 'sambanova',
+      label: 'SambaNova',
+      color: chalk.rgb(255, 165, 0),
+      url: 'https://cloud.sambanova.ai/apis',
+      hint: 'API Keys → Create ($5 free trial, 3 months)',
+      prefix: 'sn-',
+    },
+    {
+      key: 'openrouter',
+      label: 'OpenRouter',
+      color: chalk.rgb(120, 80, 255),
+      url: 'https://openrouter.ai/settings/keys',
+      hint: 'API Keys → Create key (50 free req/day, shared quota)',
+      prefix: 'sk-or-',
+    },
+    {
+      key: 'codestral',
+      label: 'Mistral Codestral',
+      color: chalk.rgb(255, 100, 100),
+      url: 'https://codestral.mistral.ai',
+      hint: 'API Keys → Create key (30 req/min, 2000/day — phone required)',
+      prefix: 'csk-',
+    },
+    {
+      key: 'hyperbolic',
+      label: 'Hyperbolic',
+      color: chalk.rgb(0, 200, 150),
+      url: 'https://app.hyperbolic.ai/settings',
+      hint: 'Settings → API Keys ($1 free trial)',
+      prefix: 'eyJ',
+    },
+    {
+      key: 'scaleway',
+      label: 'Scaleway',
+      color: chalk.rgb(130, 0, 250),
+      url: 'https://console.scaleway.com/iam/api-keys',
+      hint: 'IAM → API Keys (1M free tokens)',
+      prefix: 'scw-',
+    },
+    {
+      key: 'googleai',
+      label: 'Google AI Studio',
+      color: chalk.rgb(66, 133, 244),
+      url: 'https://aistudio.google.com/apikey',
+      hint: 'Get API key (free Gemma models, 14.4K req/day)',
+      prefix: 'AIza',
+    },
   ]
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
@@ -412,7 +460,7 @@ function calculateViewport(terminalRows, scrollOffset, totalModels) {
 }
 
 // 📖 renderTable: mode param controls footer hint text (opencode vs openclaw)
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0) {
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0, originFilterMode = 0) {
   // 📖 Filter out hidden models for display
   const visibleResults = results.filter(r => !r.hidden)
 
@@ -453,6 +501,17 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     tierBadge = chalk.bold.rgb(255, 200, 0)(` [${TIER_CYCLE_NAMES[tierFilterMode]}]`)
   }
 
+  // 📖 Origin filter badge — shown when filtering by provider is active
+  let originBadge = ''
+  if (originFilterMode > 0) {
+    const originKeys = [null, ...Object.keys(sources)]
+    const activeOriginKey = originKeys[originFilterMode]
+    const activeOriginName = activeOriginKey ? sources[activeOriginKey]?.name ?? activeOriginKey : null
+    if (activeOriginName) {
+      originBadge = chalk.bold.rgb(100, 200, 255)(` [${activeOriginName}]`)
+    }
+  }
+
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
   const W_TIER = 6
@@ -471,7 +530,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 
   const lines = [
     '',
-    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}   ` +
+    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}${originBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
       chalk.yellow(`⏱ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
@@ -509,7 +568,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = colorFirst(rankH, W_RANK)
   const tierH_c    = colorFirst('Tier', W_TIER)
-  const originH_c  = sortColumn === 'origin' ? chalk.bold.cyan(originH.padEnd(W_SOURCE)) : colorFirst(originH, W_SOURCE)
+  const originLabel = 'Origin(N)'
+  const originH_c  = sortColumn === 'origin'
+    ? chalk.bold.cyan(originLabel.padEnd(W_SOURCE))
+    : (originFilterMode > 0 ? chalk.bold.rgb(100, 200, 255)(originLabel.padEnd(W_SOURCE)) : colorFirst(originLabel, W_SOURCE))
   const modelH_c   = colorFirst(modelH, W_MODEL)
   const sweH_c     = sortColumn === 'swe' ? chalk.bold.cyan(sweH.padEnd(W_SWE)) : colorFirst(sweH, W_SWE)
   const ctxH_c     = sortColumn === 'ctx' ? chalk.bold.cyan(ctxH.padEnd(W_CTX)) : colorFirst(ctxH, W_CTX)
@@ -707,7 +769,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : mode === 'opencode-desktop'
       ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/Y/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Filter tier  •  Z Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/Y/O/M/L/A/S/C/H/V/U Sort  •  T Tier  •  N Origin  •  W↓/X↑ (${intervalSec}s)  •  Z Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.yellow('K') + chalk.dim(` Help  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '🫂 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/5MbTnDC3Md\x1b\\Join our Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
   lines.push(chalk.dim('  💬 Discord: ') + chalk.cyanBright('https://discord.gg/5MbTnDC3Md'))
@@ -777,9 +839,15 @@ function getOpenCodeModelId(providerKey, modelId) {
 
 // 📖 Env var names per provider -- used for passing resolved keys to child processes
 const ENV_VAR_NAMES = {
-  nvidia: 'NVIDIA_API_KEY',
-  groq: 'GROQ_API_KEY',
-  cerebras: 'CEREBRAS_API_KEY',
+  nvidia:     'NVIDIA_API_KEY',
+  groq:       'GROQ_API_KEY',
+  cerebras:   'CEREBRAS_API_KEY',
+  sambanova:  'SAMBANOVA_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  codestral:  'CODESTRAL_API_KEY',
+  hyperbolic: 'HYPERBOLIC_API_KEY',
+  scaleway:   'SCALEWAY_API_KEY',
+  googleai:   'GOOGLE_API_KEY',
 }
 
 // 📖 OpenCode config location varies by platform
@@ -990,6 +1058,67 @@ After installation, you can use: opencode --model ${modelRef}`
           },
           models: {}
         }
+      } else if (providerKey === 'sambanova') {
+        // 📖 SambaNova is OpenAI-compatible — uses @ai-sdk/openai-compatible with their base URL
+        config.provider.sambanova = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'SambaNova',
+          options: {
+            baseURL: 'https://api.sambanova.ai/v1',
+            apiKey: '{env:SAMBANOVA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'openrouter') {
+        config.provider.openrouter = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'OpenRouter',
+          options: {
+            baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: '{env:OPENROUTER_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'codestral') {
+        config.provider.codestral = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Mistral Codestral',
+          options: {
+            baseURL: 'https://codestral.mistral.ai/v1',
+            apiKey: '{env:CODESTRAL_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'hyperbolic') {
+        config.provider.hyperbolic = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hyperbolic',
+          options: {
+            baseURL: 'https://api.hyperbolic.xyz/v1',
+            apiKey: '{env:HYPERBOLIC_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'scaleway') {
+        config.provider.scaleway = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Scaleway',
+          options: {
+            baseURL: 'https://api.scaleway.ai/v1',
+            apiKey: '{env:SCALEWAY_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'googleai') {
+        config.provider.googleai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Google AI Studio',
+          options: {
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+            apiKey: '{env:GOOGLE_API_KEY}'
+          },
+          models: {}
+        }
       }
     }
 
@@ -1156,6 +1285,67 @@ ${isWindows ? 'set NVIDIA_API_KEY=your_key_here' : 'export NVIDIA_API_KEY=your_k
           options: {
             baseURL: 'https://api.cerebras.ai/v1',
             apiKey: '{env:CEREBRAS_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'sambanova') {
+        // 📖 SambaNova is OpenAI-compatible — uses @ai-sdk/openai-compatible with their base URL
+        config.provider.sambanova = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'SambaNova',
+          options: {
+            baseURL: 'https://api.sambanova.ai/v1',
+            apiKey: '{env:SAMBANOVA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'openrouter') {
+        config.provider.openrouter = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'OpenRouter',
+          options: {
+            baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: '{env:OPENROUTER_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'codestral') {
+        config.provider.codestral = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Mistral Codestral',
+          options: {
+            baseURL: 'https://codestral.mistral.ai/v1',
+            apiKey: '{env:CODESTRAL_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'hyperbolic') {
+        config.provider.hyperbolic = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hyperbolic',
+          options: {
+            baseURL: 'https://api.hyperbolic.xyz/v1',
+            apiKey: '{env:HYPERBOLIC_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'scaleway') {
+        config.provider.scaleway = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Scaleway',
+          options: {
+            baseURL: 'https://api.scaleway.ai/v1',
+            apiKey: '{env:SCALEWAY_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'googleai') {
+        config.provider.googleai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Google AI Studio',
+          options: {
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+            apiKey: '{env:GOOGLE_API_KEY}'
           },
           models: {}
         }
@@ -1513,6 +1703,7 @@ async function main() {
     settingsTestResults: {},      // 📖 { providerKey: 'pending'|'ok'|'fail'|null }
     config,                       // 📖 Live reference to the config object (updated on save)
     visibleSorted: [],            // 📖 Cached visible+sorted models — shared between render loop and key handlers
+    helpVisible: false,           // 📖 Whether the help overlay (K key) is active
   }
 
   // 📖 Re-clamp viewport on terminal resize
@@ -1538,10 +1729,19 @@ async function main() {
   // 📖 0=All, 1=S+, 2=S, 3=A+, 4=A, 5=A-, 6=B+, 7=B, 8=C
   const TIER_CYCLE = [null, 'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
   let tierFilterMode = 0
+
+  // 📖 originFilterMode: index into ORIGIN_CYCLE, 0=All, then each provider key in order
+  const ORIGIN_CYCLE = [null, ...Object.keys(sources)]
+  let originFilterMode = 0
+
   function applyTierFilter() {
     const activeTier = TIER_CYCLE[tierFilterMode]
+    const activeOrigin = ORIGIN_CYCLE[originFilterMode]
     state.results.forEach(r => {
-      r.hidden = activeTier !== null && r.tier !== activeTier
+      // 📖 Apply both tier and origin filters — model is hidden if it fails either
+      const tierHide = activeTier !== null && r.tier !== activeTier
+      const originHide = activeOrigin !== null && r.providerKey !== activeOrigin
+      r.hidden = tierHide || originHide
     })
     return state.results
   }
@@ -1611,6 +1811,42 @@ async function main() {
     return cleared.join('\n')
   }
 
+  // ─── Help overlay renderer ────────────────────────────────────────────────
+  // 📖 renderHelp: Draw the help overlay listing all key bindings.
+  // 📖 Toggled with K key. Gives users a quick reference without leaving the TUI.
+  function renderHelp() {
+    const EL = '\x1b[K'
+    const lines = []
+    lines.push('')
+    lines.push(`  ${chalk.bold('❓ Keyboard Shortcuts')}  ${chalk.dim('— press K or Esc to close')}`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Navigation')}`)
+    lines.push(`  ${chalk.yellow('↑↓')}           Navigate rows`)
+    lines.push(`  ${chalk.yellow('Enter')}        Select model and launch`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Sorting')}`)
+    lines.push(`  ${chalk.yellow('R')} Rank  ${chalk.yellow('Y')} Tier  ${chalk.yellow('O')} Origin  ${chalk.yellow('M')} Model`)
+    lines.push(`  ${chalk.yellow('L')} Latest ping  ${chalk.yellow('A')} Avg ping  ${chalk.yellow('S')} SWE-bench score`)
+    lines.push(`  ${chalk.yellow('C')} Context window  ${chalk.yellow('H')} Health  ${chalk.yellow('V')} Verdict  ${chalk.yellow('U')} Uptime`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Filters')}`)
+    lines.push(`  ${chalk.yellow('T')}  Cycle tier filter  ${chalk.dim('(All → S+ → S → A+ → A → A- → B+ → B → C → All)')}`)
+    lines.push(`  ${chalk.yellow('N')}  Cycle origin filter  ${chalk.dim('(All → NIM → Groq → Cerebras → ... each provider → All)')}`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Controls')}`)
+    lines.push(`  ${chalk.yellow('W')}  Decrease ping interval (faster)`)
+    lines.push(`  ${chalk.yellow('X')}  Increase ping interval (slower)`)
+    lines.push(`  ${chalk.yellow('Z')}  Cycle launch mode  ${chalk.dim('(OpenCode CLI → OpenCode Desktop → OpenClaw)')}`)
+    lines.push(`  ${chalk.yellow('P')}  Open settings  ${chalk.dim('(manage API keys per provider, enable/disable, test)')}`)
+    lines.push(`  ${chalk.yellow('K')} / ${chalk.yellow('Esc')}  Show/hide this help`)
+    lines.push(`  ${chalk.yellow('Ctrl+C')}  Exit`)
+    lines.push('')
+    const cleared = lines.map(l => l + EL)
+    const remaining = state.terminalRows > 0 ? Math.max(0, state.terminalRows - cleared.length) : 0
+    for (let i = 0; i < remaining; i++) cleared.push(EL)
+    return cleared.join('\n')
+  }
+
   // ─── Settings key test helper ───────────────────────────────────────────────
   // 📖 Fires a single ping to the selected provider to verify the API key works.
   async function testProviderKey(providerKey) {
@@ -1645,6 +1881,12 @@ async function main() {
 
   const onKeyPress = async (str, key) => {
     if (!key) return
+
+    // 📖 Help overlay: Esc or K closes it — handle before everything else so Esc isn't swallowed elsewhere
+    if (state.helpVisible && (key.name === 'escape' || key.name === 'k')) {
+      state.helpVisible = false
+      return
+    }
 
     // ─── Settings overlay keyboard handling ───────────────────────────────────
     if (state.settingsOpen) {
@@ -1753,11 +1995,12 @@ async function main() {
       return
     }
 
-    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, N=context, H=health, V=verdict, U=uptime
+    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, C=context, H=health, V=verdict, U=uptime
     // 📖 T is reserved for tier filter cycling — tier sort moved to Y
+    // 📖 N is now reserved for origin filter cycling
     const sortKeys = {
       'r': 'rank', 'y': 'tier', 'o': 'origin', 'm': 'model',
-      'l': 'ping', 'a': 'avg', 's': 'swe', 'n': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
+      'l': 'ping', 'a': 'avg', 's': 'swe', 'c': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
     if (sortKeys[key.name] && !key.ctrl) {
@@ -1794,6 +2037,24 @@ async function main() {
       state.visibleSorted = sortResults(visible, state.sortColumn, state.sortDirection)
       state.cursor = 0
       state.scrollOffset = 0
+      return
+    }
+
+    // 📖 Origin filter key: N = cycle through each provider (All → NIM → Groq → ... → All)
+    if (key.name === 'n') {
+      originFilterMode = (originFilterMode + 1) % ORIGIN_CYCLE.length
+      applyTierFilter()
+      // 📖 Recompute visible sorted list and reset cursor to avoid stale index into new filtered set
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResults(visible, state.sortColumn, state.sortDirection)
+      state.cursor = 0
+      state.scrollOffset = 0
+      return
+    }
+
+    // 📖 Help overlay key: K = toggle help overlay
+    if (key.name === 'k') {
+      state.helpVisible = !state.helpVisible
       return
     }
 
@@ -1899,7 +2160,9 @@ async function main() {
     }
     const content = state.settingsOpen
       ? renderSettings()
-      : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows)
+      : state.helpVisible
+        ? renderHelp()
+        : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode)
     process.stdout.write(ALT_HOME + content)
   }, Math.round(1000 / FPS))
 
@@ -1907,7 +2170,7 @@ async function main() {
   const initialVisible = state.results.filter(r => !r.hidden)
   state.visibleSorted = sortResults(initialVisible, state.sortColumn, state.sortDirection)
 
-  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows))
+  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode))
 
   // ── Continuous ping loop — ping all models every N seconds forever ──────────
 
