@@ -2,6 +2,46 @@
 
 ---
 
+## 0.1.66
+
+### Changed
+- **Merged with npm v0.1.65**: Rebased local codebase onto latest published version with all upstream improvements
+- **New providers from upstream**: Hugging Face, Replicate, DeepInfra, Fireworks, Codestral, Hyperbolic, Scaleway, Google AI Studio
+- **ZAI provider re-added**: Merged ZAI (GLM-5, GLM-4.7, GLM-4.7-Flash, GLM-4.7-FlashX, GLM-4.6, GLM-4.6V-FlashX, GLM-OCR) back into the upstream codebase
+- **ZAI prefix stripping**: API calls strip `zai/` prefix for z.ai endpoint compatibility
+- **ZAI OpenCode/Desktop support**: Full provider config blocks for OpenCode CLI and Desktop integration
+- **Total model count**: 108 models across 14 providers (101 upstream + 7 ZAI)
+
+## 0.1.52
+
+### Added
+- **ZAI Coding Plan support**: Added integration for ZAI provider with GLM model family
+- **New provider**: ZAI with API endpoint `https://api.z.ai/api/paas/v4/chat/completions`
+- **ZAI models**: GLM-5, GLM-4.7, GLM-4.7-Flash, GLM-4.7-FlashX, GLM-4.6, GLM-4.6V-FlashX, GLM-OCR
+- **ZAI provider position**: Added to setup wizard as second provider after NVIDIA NIM
+- **Default configuration**: ZAI provider disabled by default in empty config
+
+### Changed
+- **Provider defaults**: Groq, Cerebras, and OpenRouter disabled by default in new configurations
+- **ZAI integration**: ZAI models now properly prefixed with `zai/` for proper provider identification
+- **Environment variable**: `ZAI_API_KEY` for ZAI coding plan API key
+- **Configuration**: ZAI provider added to config file structure
+
+### Changed
+- **Disabled providers**: Groq and Cerebras providers disabled by default in new configurations
+- **Disabled OpenRouter**: OpenRouter provider disabled by default
+- **README updates**: Added ZAI documentation, updated environment variables and config examples
+- **Default config**: New configurations now have Groq, Cerebras, and OpenRouter disabled by default
+
+### Technical Details
+- Added `zai` export to `sources.js` with 7 GLM models
+- Added ZAI to `ENV_VARS` mapping in `lib/config.js`
+- Updated `_emptyConfig()` function to disable Groq, Cerebras, and OpenRouter by default
+- Added `ENV_VARS` export from `lib/config.js` for testing and documentation
+- Updated README with ZAI setup instructions and API reference
+
+---
+
 ## 0.1.51
 
 ### Fixed

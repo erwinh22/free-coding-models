@@ -222,6 +222,8 @@ Env vars always take priority over the config file:
 NVIDIA_API_KEY=nvapi-xxx free-coding-models
 GROQ_API_KEY=gsk_xxx free-coding-models
 CEREBRAS_API_KEY=csk_xxx free-coding-models
+OPENROUTER_API_KEY=or-xxx free-coding-models
+ZAI_API_KEY=zai-xxx free-coding-models
 ```
 
 ### Get your free API keys
@@ -240,7 +242,12 @@ CEREBRAS_API_KEY=csk_xxx free-coding-models
 1. Sign up at [cloud.cerebras.ai](https://cloud.cerebras.ai)
 2. Go to API Keys → Create
 
-> 💡 **Free credits** — All three providers offer free tiers for developers.
+**ZAI Coding Plan** (7 models, GLM family):
+1. Sign up at [z.ai](https://z.ai)
+2. Subscribe to Coding Plan
+3. Get API key from dashboard
+
+> 💡 **Free credits** — NVIDIA, Groq, and Cerebras offer free tiers for developers. ZAI requires Coding Plan subscription.
 
 ---
 
@@ -277,6 +284,13 @@ CEREBRAS_API_KEY=csk_xxx free-coding-models
 | **A+** 50–60% | Qwen3 32B (50.0%) |
 | **A** 40–50% | Llama 4 Scout (44.0%) |
 | **A-** 35–40% | Llama 3.3 70B (39.5%) |
+
+### ZAI Coding Plan (7 models)
+
+| Tier | SWE-bench | Models |
+|------|-----------|--------|
+| **S+** ≥70% | GLM-5 (77.8%), GLM-4.7 (73.8%), GLM-4.7-Flash (73.8%), GLM-4.7-FlashX (73.8%), GLM-4.6 (70.0%), GLM-4.6V-FlashX (70.0%) |
+| **A+** 50–60% | GLM-OCR (60.0%) |
 
 ### Tier scale
 
@@ -494,6 +508,8 @@ This script:
 | `NVIDIA_API_KEY` | NVIDIA NIM |
 | `GROQ_API_KEY` | Groq |
 | `CEREBRAS_API_KEY` | Cerebras |
+| `OPENROUTER_API_KEY` | OpenRouter |
+| `ZAI_API_KEY` | ZAI |
 
 **Config file:** `~/.free-coding-models.json` (created automatically, permissions `0600`)
 
@@ -502,12 +518,16 @@ This script:
   "apiKeys": {
     "nvidia":   "nvapi-xxx",
     "groq":     "gsk_xxx",
-    "cerebras": "csk_xxx"
+    "cerebras": "csk_xxx",
+    "openrouter": "or-xxx",
+    "zai":      "zai-xxx"
   },
   "providers": {
     "nvidia":   { "enabled": true },
-    "groq":     { "enabled": true },
-    "cerebras": { "enabled": true }
+    "groq":     { "enabled": false },
+    "cerebras": { "enabled": false },
+    "openrouter": { "enabled": false },
+    "zai":      { "enabled": true }
   }
 }
 ```

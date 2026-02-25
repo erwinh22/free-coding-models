@@ -10,7 +10,7 @@
  *   During benchmarking, users can navigate with arrow keys and press Enter to act on the selected model.
  *
  *   🎯 Key features:
- *   - Parallel pings across all models with animated real-time updates (3 providers: NIM, Groq, Cerebras)
+ *   - Parallel pings across all models with animated real-time updates (multi-provider)
  *   - Continuous monitoring with 2-second ping intervals (never stops)
  *   - Rolling averages calculated from ALL successful pings since start
  *   - Best-per-tier highlighting with medals (🥇🥈🥉)
@@ -19,23 +19,31 @@
  *   - Startup mode menu (OpenCode CLI vs OpenCode Desktop vs OpenClaw) when no flag is given
  *   - Automatic config detection and model setup for both tools
  *   - JSON config stored in ~/.free-coding-models.json (auto-migrates from old plain-text)
- *   - Multi-provider support via sources.js (NIM, Groq, Cerebras — extensible)
- *   - Settings screen (P key) to manage API keys per provider, enable/disable, test keys
+ *   - Multi-provider support via sources.js (NIM/Groq/Cerebras/OpenRouter/Hugging Face/Replicate/DeepInfra/... — extensible)
+ *   - Settings screen (P key) to manage API keys, provider toggles, analytics, and manual updates
+ *   - Favorites system: toggle with F, pin rows to top, persist between sessions
  *   - Uptime percentage tracking (successful pings / total pings)
  *   - Sortable columns (R/Y/O/M/L/A/S/N/H/V/U keys)
  *   - Tier filtering via T key (cycles S+→S→A+→A→A-→B+→B→C→All)
  *
  *   → Functions:
  *   - `loadConfig` / `saveConfig` / `getApiKey`: Multi-provider JSON config via lib/config.js
- *   - `promptApiKey`: Interactive wizard for first-time NVIDIA API key setup
+ *   - `promptTelemetryConsent`: First-run consent flow for anonymous analytics
+ *   - `getTelemetryDistinctId`: Generate/reuse a stable anonymous ID for telemetry
+ *   - `getTelemetryTerminal`: Infer terminal family (Terminal.app, iTerm2, kitty, etc.)
+ *   - `isTelemetryDebugEnabled` / `telemetryDebug`: Optional runtime telemetry diagnostics via env
+ *   - `sendUsageTelemetry`: Fire-and-forget anonymous app-start event
+ *   - `ensureFavoritesConfig` / `toggleFavoriteModel`: Persist and toggle pinned favorites
+ *   - `promptApiKey`: Interactive wizard for first-time multi-provider API key setup
  *   - `promptModeSelection`: Startup menu to choose OpenCode vs OpenClaw
- *   - `ping`: Perform HTTP request to NIM endpoint with timeout handling
+ *   - `buildPingRequest` / `ping`: Build provider-specific probe requests and measure latency
  *   - `renderTable`: Generate ASCII table with colored latency indicators and status emojis
  *   - `getAvg`: Calculate average latency from all successful pings
  *   - `getVerdict`: Determine verdict string based on average latency (Overloaded for 429)
  *   - `getUptime`: Calculate uptime percentage from ping history
  *   - `sortResults`: Sort models by various columns
  *   - `checkNvidiaNimConfig`: Check if NVIDIA NIM provider is configured in OpenCode
+ *   - `isTcpPortAvailable` / `resolveOpenCodeTmuxPort`: Pick a safe OpenCode port when running in tmux
  *   - `startOpenCode`: Launch OpenCode CLI with selected model (configures if needed)
  *   - `startOpenCodeDesktop`: Set model in shared config & open OpenCode Desktop app
  *   - `loadOpenClawConfig` / `saveOpenClawConfig`: Manage ~/.openclaw/openclaw.json
@@ -52,8 +60,8 @@
  *   ⚙️ Configuration:
  *   - API keys stored per-provider in ~/.free-coding-models.json (0600 perms)
  *   - Old ~/.free-coding-models plain-text auto-migrated as nvidia key on first run
- *   - Env vars override config: NVIDIA_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
- *   - Models loaded from sources.js — 53 models across NIM, Groq, Cerebras
+ *   - Env vars override config: NVIDIA_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY, HUGGINGFACE_API_KEY/HF_TOKEN, REPLICATE_API_TOKEN, DEEPINFRA_API_KEY/DEEPINFRA_TOKEN, FIREWORKS_API_KEY, etc.
+ *   - Models loaded from sources.js — all provider/model definitions are centralized there
  *   - OpenCode config: ~/.config/opencode/opencode.json
  *   - OpenClaw config: ~/.openclaw/openclaw.json
  *   - Ping timeout: 15s per attempt
@@ -67,6 +75,7 @@
  *   - --openclaw: OpenClaw mode (set selected model as default in OpenClaw)
  *   - --best: Show only top-tier models (A+, S, S+)
  *   - --fiable: Analyze 10s and output the most reliable model
+ *   - --no-telemetry: Disable anonymous usage analytics for this run
  *   - --tier S/A/B/C: Filter models by tier letter (S=S+/S, A=A+/A/A-, B=B+/B, C=C)
  *
  *   @see {@link https://build.nvidia.com} NVIDIA API key generation
@@ -77,8 +86,10 @@
 import chalk from 'chalk'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from 'fs'
+import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
+import { createServer } from 'net'
 import { MODELS, sources } from '../sources.js'
 import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
 import { getAvg, getVerdict, getUptime, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP } from '../lib/utils.js'
@@ -90,15 +101,389 @@ const readline = require('readline')
 // ─── Version check ────────────────────────────────────────────────────────────
 const pkg = require('../package.json')
 const LOCAL_VERSION = pkg.version
+const TELEMETRY_CONSENT_VERSION = 1
+const TELEMETRY_TIMEOUT = 1_200
+const POSTHOG_CAPTURE_PATH = '/i/v0/e/'
+const POSTHOG_DEFAULT_HOST = 'https://eu.i.posthog.com'
+// 📖 Consent ASCII banner shown before telemetry choice to make first-run intent explicit.
+const TELEMETRY_CONSENT_ASCII = [
+  '███████ ██████  ███████ ███████        ██████  ██████  ██████  ██ ███    ██  ██████        ███    ███  ██████  ██████  ███████ ██      ███████',
+  '██      ██   ██ ██      ██            ██      ██    ██ ██   ██ ██ ████   ██ ██             ████  ████ ██    ██ ██   ██ ██      ██      ██',
+  '█████   ██████  █████   █████   █████ ██      ██    ██ ██   ██ ██ ██ ██  ██ ██   ███ █████ ██ ████ ██ ██    ██ ██   ██ █████   ██      ███████',
+  '██      ██   ██ ██      ██            ██      ██    ██ ██   ██ ██ ██  ██ ██ ██    ██       ██  ██  ██ ██    ██ ██   ██ ██      ██           ██',
+  '██      ██   ██ ███████ ███████        ██████  ██████  ██████  ██ ██   ████  ██████        ██      ██  ██████  ██████  ███████ ███████ ███████',
+  '',
+  '',
+]
+// 📖 Maintainer defaults for global npm telemetry (safe to publish: project key is a public ingest token).
+const POSTHOG_PROJECT_KEY_DEFAULT = 'phc_5P1n8HaLof6nHM0tKJYt4bV5pj2XPb272fLVigwf1YQ'
+const POSTHOG_HOST_DEFAULT = 'https://eu.i.posthog.com'
 
-async function checkForUpdate() {
+// 📖 parseTelemetryEnv: Convert env var strings into booleans.
+// 📖 Returns true/false when value is recognized, otherwise null.
+function parseTelemetryEnv(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return null
+}
+
+// 📖 Optional debug switch for telemetry troubleshooting (disabled by default).
+function isTelemetryDebugEnabled() {
+  return parseTelemetryEnv(process.env.FREE_CODING_MODELS_TELEMETRY_DEBUG) === true
+}
+
+// 📖 Writes telemetry debug traces to stderr only when explicitly enabled.
+function telemetryDebug(message, meta = null) {
+  if (!isTelemetryDebugEnabled()) return
+  const prefix = '[telemetry-debug]'
+  if (meta === null) {
+    process.stderr.write(`${prefix} ${message}\n`)
+    return
+  }
+  try {
+    process.stderr.write(`${prefix} ${message} ${JSON.stringify(meta)}\n`)
+  } catch {
+    process.stderr.write(`${prefix} ${message}\n`)
+  }
+}
+
+// 📖 Ensure telemetry config shape exists even on old config files.
+function ensureTelemetryConfig(config) {
+  if (!config.telemetry || typeof config.telemetry !== 'object') {
+    config.telemetry = { enabled: null, consentVersion: 0, anonymousId: null }
+  }
+  if (typeof config.telemetry.enabled !== 'boolean') config.telemetry.enabled = null
+  if (typeof config.telemetry.consentVersion !== 'number') config.telemetry.consentVersion = 0
+  if (typeof config.telemetry.anonymousId !== 'string' || !config.telemetry.anonymousId.trim()) {
+    config.telemetry.anonymousId = null
+  }
+}
+
+// 📖 Ensure favorites config shape exists and remains clean.
+// 📖 Stored format: ["providerKey/modelId", ...] in insertion order.
+function ensureFavoritesConfig(config) {
+  if (!Array.isArray(config.favorites)) config.favorites = []
+  const seen = new Set()
+  config.favorites = config.favorites.filter((entry) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) return false
+    if (seen.has(entry)) return false
+    seen.add(entry)
+    return true
+  })
+}
+
+// 📖 Build deterministic key used to persist one favorite model row.
+function toFavoriteKey(providerKey, modelId) {
+  return `${providerKey}/${modelId}`
+}
+
+// 📖 Sync per-row favorite metadata from config (used by renderer and sorter).
+function syncFavoriteFlags(results, config) {
+  ensureFavoritesConfig(config)
+  const favoriteRankMap = new Map(config.favorites.map((entry, index) => [entry, index]))
+  for (const row of results) {
+    const favoriteKey = toFavoriteKey(row.providerKey, row.modelId)
+    const rank = favoriteRankMap.get(favoriteKey)
+    row.favoriteKey = favoriteKey
+    row.isFavorite = rank !== undefined
+    row.favoriteRank = rank !== undefined ? rank : Number.MAX_SAFE_INTEGER
+  }
+}
+
+// 📖 Toggle favorite state and persist immediately.
+// 📖 Returns true when row is now favorite, false when removed.
+function toggleFavoriteModel(config, providerKey, modelId) {
+  ensureFavoritesConfig(config)
+  const favoriteKey = toFavoriteKey(providerKey, modelId)
+  const existingIndex = config.favorites.indexOf(favoriteKey)
+  if (existingIndex >= 0) {
+    config.favorites.splice(existingIndex, 1)
+    saveConfig(config)
+    return false
+  }
+  config.favorites.push(favoriteKey)
+  saveConfig(config)
+  return true
+}
+
+// 📖 Create or reuse a persistent anonymous distinct_id for PostHog.
+// 📖 Stored locally in config so one user is stable over time without personal data.
+function getTelemetryDistinctId(config) {
+  ensureTelemetryConfig(config)
+  if (config.telemetry.anonymousId) return config.telemetry.anonymousId
+
+  config.telemetry.anonymousId = `anon_${randomUUID()}`
+  saveConfig(config)
+  return config.telemetry.anonymousId
+}
+
+// 📖 Convert Node platform to human-readable system name for analytics segmentation.
+function getTelemetrySystem() {
+  if (process.platform === 'darwin') return 'macOS'
+  if (process.platform === 'win32') return 'Windows'
+  if (process.platform === 'linux') return 'Linux'
+  return process.platform
+}
+
+// 📖 Infer terminal family from environment hints for coarse usage segmentation.
+// 📖 Never sends full env dumps; only a normalized terminal label is emitted.
+function getTelemetryTerminal() {
+  const termProgramRaw = (process.env.TERM_PROGRAM || '').trim()
+  const termProgram = termProgramRaw.toLowerCase()
+  const term = (process.env.TERM || '').toLowerCase()
+
+  if (termProgram === 'apple_terminal') return 'Terminal.app'
+  if (termProgram === 'iterm.app') return 'iTerm2'
+  if (termProgram === 'warpterminal' || process.env.WARP_IS_LOCAL_SHELL_SESSION) return 'Warp'
+  if (process.env.WT_SESSION) return 'Windows Terminal'
+  if (process.env.KITTY_WINDOW_ID || term.includes('kitty')) return 'kitty'
+  if (process.env.GHOSTTY_RESOURCES_DIR || term.includes('ghostty')) return 'Ghostty'
+  if (process.env.WEZTERM_PANE || termProgram === 'wezterm') return 'WezTerm'
+  if (process.env.KONSOLE_VERSION || termProgram === 'konsole') return 'Konsole'
+  if (process.env.GNOME_TERMINAL_SCREEN || termProgram === 'gnome-terminal') return 'GNOME Terminal'
+  if (process.env.TERMINAL_EMULATOR === 'JetBrains-JediTerm') return 'JetBrains Terminal'
+  if (process.env.TABBY_CONFIG_DIRECTORY || termProgram === 'tabby') return 'Tabby'
+  if (termProgram === 'vscode' || process.env.VSCODE_GIT_IPC_HANDLE) return 'VS Code Terminal'
+  if (process.env.ALACRITTY_SOCKET || term.includes('alacritty') || termProgram === 'alacritty') return 'Alacritty'
+  if (term.includes('foot') || termProgram === 'foot') return 'foot'
+  if (termProgram === 'hyper' || process.env.HYPER) return 'Hyper'
+  if (process.env.TMUX) return 'tmux'
+  if (process.env.STY) return 'screen'
+  // 📖 Generic fallback for many terminals exposing TERM_PROGRAM (e.g., Rio, Contour, etc.).
+  if (termProgramRaw) return termProgramRaw
+  if (term) return term
+
+  return 'unknown'
+}
+
+// 📖 Prompt consent on first run (or when consent schema version changes).
+// 📖 This prompt is skipped when the env var explicitly controls telemetry.
+async function promptTelemetryConsent(config, cliArgs) {
+  if (cliArgs.noTelemetry) return
+
+  const envTelemetry = parseTelemetryEnv(process.env.FREE_CODING_MODELS_TELEMETRY)
+  if (envTelemetry !== null) return
+
+  ensureTelemetryConfig(config)
+  const hasStoredChoice = typeof config.telemetry.enabled === 'boolean'
+  const isConsentCurrent = config.telemetry.consentVersion >= TELEMETRY_CONSENT_VERSION
+  if (hasStoredChoice && isConsentCurrent) return
+
+  // 📖 Non-interactive runs should never hang waiting for input.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    // 📖 Do not mutate persisted consent in headless runs.
+    // 📖 We simply skip the prompt; runtime telemetry remains governed by env/config precedence.
+    return
+  }
+
+  const options = [
+    { label: 'Accept & Continue', value: true, emoji: '💖🥰💖' },
+    { label: 'Reject and Continue', value: false, emoji: '😢' },
+  ]
+  let selected = 0 // 📖 Default selection is Accept & Continue.
+
+  const accepted = await new Promise((resolve) => {
+    const render = () => {
+      const EL = '\x1b[K'
+      const lines = []
+      for (const asciiLine of TELEMETRY_CONSENT_ASCII) {
+        lines.push(chalk.greenBright(asciiLine))
+      }
+      lines.push(chalk.greenBright(`free-coding-models (v${LOCAL_VERSION})`))
+      lines.push(chalk.greenBright('Welcome ! Would you like to help improve the app and fix bugs by activating PostHog telemetry (anonymous & secure)'))
+      lines.push(chalk.greenBright("anonymous telemetry analytics (we don't collect anything from you)"))
+      lines.push('')
+
+      for (let i = 0; i < options.length; i++) {
+        const isSelected = i === selected
+        const option = options[i]
+        const buttonText = `${option.emoji} ${option.label}`
+
+        let button
+        if (isSelected && option.value) button = chalk.black.bgGreenBright(`  ${buttonText}  `)
+        else if (isSelected && !option.value) button = chalk.black.bgRedBright(`  ${buttonText}  `)
+        else if (option.value) button = chalk.greenBright(`  ${buttonText}  `)
+        else button = chalk.redBright(`  ${buttonText}  `)
+
+        const prefix = isSelected ? chalk.cyan('  ❯ ') : chalk.dim('    ')
+        lines.push(prefix + button)
+      }
+
+      lines.push('')
+      lines.push(chalk.dim('  ↑↓ Navigate  •  Enter Select'))
+      lines.push(chalk.dim('  You can change this later in Settings (P).'))
+      lines.push('')
+
+      // 📖 Avoid full-screen clear escape here to prevent title/header offset issues in some terminals.
+      const cleared = lines.map(l => l + EL)
+      const terminalRows = process.stdout.rows || 24
+      const remaining = Math.max(0, terminalRows - cleared.length)
+      for (let i = 0; i < remaining; i++) cleared.push(EL)
+      process.stdout.write('\x1b[H' + cleared.join('\n'))
+    }
+
+    const cleanup = () => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false)
+      process.stdin.removeListener('keypress', onKeyPress)
+      process.stdin.pause()
+    }
+
+    const onKeyPress = (_str, key) => {
+      if (!key) return
+
+      if (key.ctrl && key.name === 'c') {
+        cleanup()
+        resolve(false)
+        return
+      }
+
+      if ((key.name === 'up' || key.name === 'left') && selected > 0) {
+        selected--
+        render()
+        return
+      }
+
+      if ((key.name === 'down' || key.name === 'right') && selected < options.length - 1) {
+        selected++
+        render()
+        return
+      }
+
+      if (key.name === 'return') {
+        cleanup()
+        resolve(options[selected].value)
+      }
+    }
+
+    readline.emitKeypressEvents(process.stdin)
+    process.stdin.setEncoding('utf8')
+    process.stdin.resume()
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
+    process.stdin.on('keypress', onKeyPress)
+    render()
+  })
+
+  config.telemetry.enabled = accepted
+  config.telemetry.consentVersion = TELEMETRY_CONSENT_VERSION
+  saveConfig(config)
+
+  console.log()
+  if (accepted) {
+    console.log(chalk.green('  ✅ Analytics enabled. You can disable it later in Settings (P) or with --no-telemetry.'))
+  } else {
+    console.log(chalk.yellow('  Analytics disabled. You can enable it later in Settings (P).'))
+  }
+  console.log()
+}
+
+// 📖 Resolve telemetry effective state with clear precedence:
+// 📖 CLI flag > env var > config file > disabled by default.
+function isTelemetryEnabled(config, cliArgs) {
+  if (cliArgs.noTelemetry) return false
+  const envTelemetry = parseTelemetryEnv(process.env.FREE_CODING_MODELS_TELEMETRY)
+  if (envTelemetry !== null) return envTelemetry
+  ensureTelemetryConfig(config)
+  return config.telemetry.enabled === true
+}
+
+// 📖 Fire-and-forget analytics ping: never blocks UX, never throws.
+async function sendUsageTelemetry(config, cliArgs, payload) {
+  if (!isTelemetryEnabled(config, cliArgs)) {
+    telemetryDebug('skip: telemetry disabled', {
+      cliNoTelemetry: cliArgs.noTelemetry === true,
+      envTelemetry: process.env.FREE_CODING_MODELS_TELEMETRY || null,
+      configEnabled: config?.telemetry?.enabled ?? null,
+    })
+    return
+  }
+
+  const apiKey = (
+    process.env.FREE_CODING_MODELS_POSTHOG_KEY ||
+    process.env.POSTHOG_PROJECT_API_KEY ||
+    POSTHOG_PROJECT_KEY_DEFAULT ||
+    ''
+  ).trim()
+  if (!apiKey) {
+    telemetryDebug('skip: missing api key')
+    return
+  }
+
+  const host = (
+    process.env.FREE_CODING_MODELS_POSTHOG_HOST ||
+    process.env.POSTHOG_HOST ||
+    POSTHOG_HOST_DEFAULT ||
+    POSTHOG_DEFAULT_HOST
+  ).trim().replace(/\/+$/, '')
+  if (!host) {
+    telemetryDebug('skip: missing host')
+    return
+  }
+
+  try {
+    const endpoint = `${host}${POSTHOG_CAPTURE_PATH}`
+    const distinctId = getTelemetryDistinctId(config)
+    const timestamp = typeof payload?.ts === 'string' ? payload.ts : new Date().toISOString()
+    const signal = (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function')
+      ? AbortSignal.timeout(TELEMETRY_TIMEOUT)
+      : undefined
+
+    const posthogBody = {
+      api_key: apiKey,
+      event: payload?.event || 'app_start',
+      distinct_id: distinctId,
+      timestamp,
+      properties: {
+        $process_person_profile: false,
+        source: 'cli',
+        app: 'free-coding-models',
+        version: payload?.version || LOCAL_VERSION,
+        app_version: payload?.version || LOCAL_VERSION,
+        mode: payload?.mode || 'opencode',
+        system: getTelemetrySystem(),
+        terminal: getTelemetryTerminal(),
+      },
+    }
+
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(posthogBody),
+      signal,
+    })
+    telemetryDebug('sent', {
+      event: posthogBody.event,
+      endpoint,
+      mode: posthogBody.properties.mode,
+      system: posthogBody.properties.system,
+      terminal: posthogBody.properties.terminal,
+    })
+  } catch {
+    // 📖 Ignore failures silently: analytics must never break the CLI.
+    telemetryDebug('error: send failed')
+  }
+}
+
+// 📖 checkForUpdateDetailed: Fetch npm latest version with explicit error details.
+// 📖 Used by settings manual-check flow to display meaningful status in the UI.
+async function checkForUpdateDetailed() {
   try {
     const res = await fetch('https://registry.npmjs.org/free-coding-models/latest', { signal: AbortSignal.timeout(5000) })
-    if (!res.ok) return null
+    if (!res.ok) return { latestVersion: null, error: `HTTP ${res.status}` }
     const data = await res.json()
-    if (data.version && data.version !== LOCAL_VERSION) return data.version
-  } catch {}
-  return null
+    if (data.version && data.version !== LOCAL_VERSION) return { latestVersion: data.version, error: null }
+    return { latestVersion: null, error: null }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return { latestVersion: null, error: message }
+  }
+}
+
+// 📖 checkForUpdate: Backward-compatible wrapper for startup update prompt.
+async function checkForUpdate() {
+  const { latestVersion } = await checkForUpdateDetailed()
+  return latestVersion
 }
 
 function runUpdate(latestVersion) {
@@ -163,7 +548,7 @@ function runUpdate(latestVersion) {
 
 // ─── First-run wizard ─────────────────────────────────────────────────────────
 // 📖 Shown when NO provider has a key configured yet.
-// 📖 Steps through all 3 providers sequentially — each is optional (Enter to skip).
+// 📖 Steps through all configured providers sequentially — each is optional (Enter to skip).
 // 📖 At least one key must be entered to proceed. Keys saved to ~/.free-coding-models.json.
 // 📖 Returns the nvidia key (or null) for backward-compat with the rest of main().
 async function promptApiKey(config) {
@@ -172,33 +557,17 @@ async function promptApiKey(config) {
   console.log(chalk.dim('  Enter keys for any provider you want to use. Press Enter to skip one.'))
   console.log()
 
-  // 📖 Provider definitions: label, key field, url for getting the key
-  const providers = [
-    {
-      key: 'nvidia',
-      label: 'NVIDIA NIM',
-      color: chalk.rgb(118, 185, 0),
-      url: 'https://build.nvidia.com',
-      hint: 'Profile → API Keys → Generate',
-      prefix: 'nvapi-',
-    },
-    {
-      key: 'groq',
-      label: 'Groq',
-      color: chalk.rgb(249, 103, 20),
-      url: 'https://console.groq.com/keys',
-      hint: 'API Keys → Create API Key',
-      prefix: 'gsk_',
-    },
-    {
-      key: 'cerebras',
-      label: 'Cerebras',
-      color: chalk.rgb(0, 180, 255),
-      url: 'https://cloud.cerebras.ai',
-      hint: 'API Keys → Create',
-      prefix: 'csk_ / cauth_',
-    },
-  ]
+  // 📖 Build providers from sources to keep setup in sync with actual supported providers.
+  const providers = Object.keys(sources).map((key) => {
+    const meta = PROVIDER_METADATA[key] || {}
+    return {
+      key,
+      label: meta.label || sources[key]?.name || key,
+      color: meta.color || chalk.white,
+      url: meta.signupUrl || 'https://example.com',
+      hint: meta.signupHint || 'Create API key',
+    }
+  })
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 
@@ -392,14 +761,17 @@ const spinCell = (f, o = 0) => chalk.dim.yellow(FRAMES[(f + o) % FRAMES.length].
 // 📖 are imported from lib/utils.js for testability
 
 // ─── Viewport calculation ────────────────────────────────────────────────────
+// 📖 Keep these constants in sync with renderTable() fixed shell lines.
+// 📖 If this drifts, model rows overflow and can push the title row out of view.
+const TABLE_HEADER_LINES = 4 // 📖 title, spacer, column headers, separator
+const TABLE_FOOTER_LINES = 6 // 📖 spacer, hints, spacer, credit+contributors, discord, spacer
+const TABLE_FIXED_LINES = TABLE_HEADER_LINES + TABLE_FOOTER_LINES
+
 // 📖 Computes the visible slice of model rows that fits in the terminal.
-// 📖 Fixed lines: 5 header + 5 footer = 10 lines always consumed.
-// 📖 Header: empty, title, empty, column headers, separator (5)
-// 📖 Footer: empty, hints, empty, credit, empty (5)
 // 📖 When scroll indicators are needed, they each consume 1 line from the model budget.
 function calculateViewport(terminalRows, scrollOffset, totalModels) {
   if (terminalRows <= 0) return { startIdx: 0, endIdx: totalModels, hasAbove: false, hasBelow: false }
-  let maxSlots = terminalRows - 10  // 5 header + 5 footer
+  let maxSlots = terminalRows - TABLE_FIXED_LINES
   if (maxSlots < 1) maxSlots = 1
   if (totalModels <= maxSlots) return { startIdx: 0, endIdx: totalModels, hasAbove: false, hasBelow: false }
 
@@ -411,8 +783,18 @@ function calculateViewport(terminalRows, scrollOffset, totalModels) {
   return { startIdx: scrollOffset, endIdx, hasAbove, hasBelow }
 }
 
+// 📖 Favorites are always pinned at the top and keep insertion order.
+// 📖 Non-favorites still use the active sort column/direction.
+function sortResultsWithPinnedFavorites(results, sortColumn, sortDirection) {
+  const favoriteRows = results
+    .filter((r) => r.isFavorite)
+    .sort((a, b) => a.favoriteRank - b.favoriteRank)
+  const nonFavoriteRows = sortResults(results.filter((r) => !r.isFavorite), sortColumn, sortDirection)
+  return [...favoriteRows, ...nonFavoriteRows]
+}
+
 // 📖 renderTable: mode param controls footer hint text (opencode vs openclaw)
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0) {
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0, originFilterMode = 0) {
   // 📖 Filter out hidden models for display
   const visibleResults = results.filter(r => !r.hidden)
 
@@ -438,7 +820,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   if (mode === 'openclaw') {
     modeBadge = chalk.bold.rgb(255, 100, 50)(' [🦞 OpenClaw]')
   } else if (mode === 'opencode-desktop') {
-    modeBadge = chalk.bold.rgb(0, 200, 255)(' [🖥 Desktop]')
+    modeBadge = chalk.bold.rgb(0, 200, 255)(' [🖥  Desktop]')
   } else {
     modeBadge = chalk.bold.rgb(0, 200, 255)(' [💻 CLI]')
   }
@@ -451,6 +833,17 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   let tierBadge = ''
   if (tierFilterMode > 0) {
     tierBadge = chalk.bold.rgb(255, 200, 0)(` [${TIER_CYCLE_NAMES[tierFilterMode]}]`)
+  }
+
+  // 📖 Origin filter badge — shown when filtering by provider is active
+  let originBadge = ''
+  if (originFilterMode > 0) {
+    const originKeys = [null, ...Object.keys(sources)]
+    const activeOriginKey = originKeys[originFilterMode]
+    const activeOriginName = activeOriginKey ? sources[activeOriginKey]?.name ?? activeOriginKey : null
+    if (activeOriginName) {
+      originBadge = chalk.bold.rgb(100, 200, 255)(` [${activeOriginName}]`)
+    }
   }
 
   // 📖 Column widths (generous spacing with margins)
@@ -467,13 +860,12 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const W_UPTIME = 6
 
   // 📖 Sort models using the shared helper
-  const sorted = sortResults(visibleResults, sortColumn, sortDirection)
+  const sorted = sortResultsWithPinnedFavorites(visibleResults, sortColumn, sortDirection)
 
   const lines = [
-    '',
-    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}   ` +
+    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}${originBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
-      chalk.yellow(`⏱ ${timeout}`) + chalk.dim(' timeout  ') +
+      chalk.yellow(`⏳ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
       phase,
     '',
@@ -509,7 +901,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = colorFirst(rankH, W_RANK)
   const tierH_c    = colorFirst('Tier', W_TIER)
-  const originH_c  = sortColumn === 'origin' ? chalk.bold.cyan(originH.padEnd(W_SOURCE)) : colorFirst(originH, W_SOURCE)
+  const originLabel = 'Origin(N)'
+  const originH_c  = sortColumn === 'origin'
+    ? chalk.bold.cyan(originLabel.padEnd(W_SOURCE))
+    : (originFilterMode > 0 ? chalk.bold.rgb(100, 200, 255)(originLabel.padEnd(W_SOURCE)) : colorFirst(originLabel, W_SOURCE))
   const modelH_c   = colorFirst(modelH, W_MODEL)
   const sweH_c     = sortColumn === 'swe' ? chalk.bold.cyan(sweH.padEnd(W_SWE)) : colorFirst(sweH, W_SWE)
   const ctxH_c     = sortColumn === 'ctx' ? chalk.bold.cyan(ctxH.padEnd(W_CTX)) : colorFirst(ctxH, W_CTX)
@@ -557,7 +952,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     // 📖 Show provider name from sources map (NIM / Groq / Cerebras)
     const providerName = sources[r.providerKey]?.name ?? r.providerKey ?? 'NIM'
     const source = chalk.green(providerName.padEnd(W_SOURCE))
-    const name = r.label.slice(0, W_MODEL).padEnd(W_MODEL)
+    // 📖 Favorites get a leading star in Model column.
+    const favoritePrefix = r.isFavorite ? '⭐ ' : ''
+    const nameWidth = Math.max(0, W_MODEL - favoritePrefix.length)
+    const name = favoritePrefix + r.label.slice(0, nameWidth).padEnd(nameWidth)
     const sweScore = r.sweScore ?? '—'
     const sweCell = sweScore !== '—' && parseFloat(sweScore) >= 50 
       ? chalk.greenBright(sweScore.padEnd(W_SWE))
@@ -687,8 +1085,12 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Up%)
     const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
 
-    if (isCursor) {
+    if (isCursor && r.isFavorite) {
+      lines.push(chalk.bgRgb(120, 60, 0)(row))
+    } else if (isCursor) {
       lines.push(chalk.bgRgb(139, 0, 139)(row))
+    } else if (r.isFavorite) {
+      lines.push(chalk.bgRgb(90, 45, 0)(row))
     } else {
       lines.push(row)
     }
@@ -707,9 +1109,19 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : mode === 'opencode-desktop'
       ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  R/Y/O/M/L/A/S/C/H/V/U Sort  •  W↓/X↑ Interval (${intervalSec}s)  •  T Filter tier  •  Z Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  F Favorite  •  R/Y/O/M/L/A/S/C/H/V/U Sort  •  T Tier  •  N Origin  •  W↓/X↑ (${intervalSec}s)  •  Z Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.bgGreenBright.black.bold(' K Help ') + chalk.dim(`  •  Ctrl+C Exit`))
   lines.push('')
-  lines.push(chalk.dim('  Made with ') + '💖 & ☕' + chalk.dim(' by ') + '\x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\' + chalk.dim('  •  ') + '🫂 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/5MbTnDC3Md\x1b\\Join our Discord!\x1b]8;;\x1b\\') + chalk.dim('  •  ') + '⭐ ' + '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Read the docs on GitHub\x1b]8;;\x1b\\')
+  lines.push(
+    chalk.rgb(255, 150, 200)('  Made with 💖 & ☕ by \x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\') +
+    chalk.dim('  •  ') +
+    '⭐ ' +
+    '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Star on GitHub\x1b]8;;\x1b\\' +
+    chalk.dim('  •  ') +
+    '🤝 ' +
+    '\x1b]8;;https://github.com/vava-nessa/free-coding-models/graphs/contributors\x1b\\Contributors\x1b]8;;\x1b\\'
+  )
+  // 📖 Discord invite + BETA warning — always visible at the bottom of the TUI
+  lines.push('  💬 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/5MbTnDC3Md\x1b\\Join our Discord\x1b]8;;\x1b\\') + chalk.dim(' → ') + chalk.cyanBright('https://discord.gg/5MbTnDC3Md') + chalk.dim('  •  ') + chalk.yellow('⚠ BETA TUI') + chalk.dim(' — might crash or have problems'))
   lines.push('')
   // 📖 Append \x1b[K (erase to EOL) to each line so leftover chars from previous
   // 📖 frames are cleared. Then pad with blank cleared lines to fill the terminal,
@@ -724,23 +1136,53 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
 // ─── HTTP ping ────────────────────────────────────────────────────────────────
 
 // 📖 ping: Send a single chat completion request to measure model availability and latency.
-// 📖 url param is the provider's endpoint URL — differs per provider (NIM, Groq, Cerebras).
+// 📖 providerKey and url determine provider-specific request format.
 // 📖 apiKey can be null — in that case no Authorization header is sent.
 // 📖 A 401 response still tells us the server is UP and gives us real latency.
-async function ping(apiKey, modelId, url) {
+function buildPingRequest(apiKey, modelId, providerKey, url) {
+  if (providerKey === 'replicate') {
+    // 📖 Replicate uses /v1/predictions with a different payload than OpenAI chat-completions.
+    const replicateHeaders = { 'Content-Type': 'application/json', Prefer: 'wait=4' }
+    if (apiKey) replicateHeaders.Authorization = `Token ${apiKey}`
+    return {
+      url,
+      headers: replicateHeaders,
+      body: { version: modelId, input: { prompt: 'hi' } },
+    }
+  }
+
+  // 📖 ZAI API expects model IDs without the "zai/" prefix (e.g. "glm-5" not "zai/glm-5")
+  const apiModelId = providerKey === 'zai' ? modelId.replace(/^zai\//, '') : modelId
+
+  const headers = { 'Content-Type': 'application/json' }
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+  if (providerKey === 'openrouter') {
+    // 📖 OpenRouter recommends optional app identification headers.
+    headers['HTTP-Referer'] = 'https://github.com/vava-nessa/free-coding-models'
+    headers['X-Title'] = 'free-coding-models'
+  }
+
+  return {
+    url,
+    headers,
+    body: { model: apiModelId, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 },
+  }
+}
+
+async function ping(apiKey, modelId, providerKey, url) {
   const ctrl  = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), PING_TIMEOUT)
   const t0    = performance.now()
   try {
-    // 📖 Only attach Authorization header when a key is available
-    const headers = { 'Content-Type': 'application/json' }
-    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-    const resp = await fetch(url, {
+    const req = buildPingRequest(apiKey, modelId, providerKey, url)
+    const resp = await fetch(req.url, {
       method: 'POST', signal: ctrl.signal,
-      headers,
-      body: JSON.stringify({ model: modelId, messages: [{ role: 'user', content: 'hi' }], max_tokens: 1 }),
+      headers: req.headers,
+      body: JSON.stringify(req.body),
     })
-    return { code: String(resp.status), ms: Math.round(performance.now() - t0) }
+    // 📖 Normalize all HTTP 2xx statuses to "200" so existing verdict/avg logic still works.
+    const code = resp.status >= 200 && resp.status < 300 ? '200' : String(resp.status)
+    return { code, ms: Math.round(performance.now() - t0) }
   } catch (err) {
     const isTimeout = err.name === 'AbortError'
     return {
@@ -758,6 +1200,143 @@ const isWindows = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
 const isLinux = process.platform === 'linux'
 
+// ─── OpenCode model ID mapping ─────────────────────────────────────────────────
+// 📖 Source model IDs -> OpenCode built-in model IDs (only where they differ)
+// 📖 Groq's API aliases short names to full names, but OpenCode does exact ID matching
+// 📖 against its built-in model list. Unmapped models pass through as-is.
+const OPENCODE_MODEL_MAP = {
+  groq: {
+    'moonshotai/kimi-k2-instruct': 'moonshotai/kimi-k2-instruct-0905',
+    'meta-llama/llama-4-scout-17b-16e-preview': 'meta-llama/llama-4-scout-17b-16e-instruct',
+    'meta-llama/llama-4-maverick-17b-128e-preview': 'meta-llama/llama-4-maverick-17b-128e-instruct',
+  }
+}
+
+function getOpenCodeModelId(providerKey, modelId) {
+  return OPENCODE_MODEL_MAP[providerKey]?.[modelId] || modelId
+}
+
+// 📖 Env var names per provider -- used for passing resolved keys to child processes
+const ENV_VAR_NAMES = {
+  nvidia:     'NVIDIA_API_KEY',
+  groq:       'GROQ_API_KEY',
+  cerebras:   'CEREBRAS_API_KEY',
+  sambanova:  'SAMBANOVA_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  huggingface:'HUGGINGFACE_API_KEY',
+  replicate:  'REPLICATE_API_TOKEN',
+  deepinfra:  'DEEPINFRA_API_KEY',
+  fireworks:  'FIREWORKS_API_KEY',
+  codestral:  'CODESTRAL_API_KEY',
+  hyperbolic: 'HYPERBOLIC_API_KEY',
+  scaleway:   'SCALEWAY_API_KEY',
+  googleai:   'GOOGLE_API_KEY',
+  zai:        'ZAI_API_KEY',
+}
+
+// 📖 Provider metadata used by the setup wizard and Settings details panel.
+// 📖 Keeps signup links + rate limits centralized so UI stays consistent.
+const PROVIDER_METADATA = {
+  nvidia: {
+    label: 'NVIDIA NIM',
+    color: chalk.rgb(118, 185, 0),
+    signupUrl: 'https://build.nvidia.com',
+    signupHint: 'Profile → API Keys → Generate',
+    rateLimits: 'Free tier (provider quota by model)',
+  },
+  groq: {
+    label: 'Groq',
+    color: chalk.rgb(249, 103, 20),
+    signupUrl: 'https://console.groq.com/keys',
+    signupHint: 'API Keys → Create API Key',
+    rateLimits: 'Free dev tier (provider quota)',
+  },
+  cerebras: {
+    label: 'Cerebras',
+    color: chalk.rgb(0, 180, 255),
+    signupUrl: 'https://cloud.cerebras.ai',
+    signupHint: 'API Keys → Create',
+    rateLimits: 'Free dev tier (provider quota)',
+  },
+  sambanova: {
+    label: 'SambaNova',
+    color: chalk.rgb(255, 165, 0),
+    signupUrl: 'https://sambanova.ai/developers',
+    signupHint: 'Developers portal → Create API key',
+    rateLimits: 'Dev tier generous quota',
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    color: chalk.rgb(120, 80, 255),
+    signupUrl: 'https://openrouter.ai/keys',
+    signupHint: 'API Keys → Create',
+    rateLimits: '50 req/day, 20/min (:free shared quota)',
+  },
+  huggingface: {
+    label: 'Hugging Face Inference',
+    color: chalk.rgb(255, 182, 0),
+    signupUrl: 'https://huggingface.co/settings/tokens',
+    signupHint: 'Settings → Access Tokens',
+    rateLimits: 'Free monthly credits (~$0.10)',
+  },
+  replicate: {
+    label: 'Replicate',
+    color: chalk.rgb(120, 160, 255),
+    signupUrl: 'https://replicate.com/account/api-tokens',
+    signupHint: 'Account → API Tokens',
+    rateLimits: 'Developer free quota',
+  },
+  deepinfra: {
+    label: 'DeepInfra',
+    color: chalk.rgb(0, 180, 140),
+    signupUrl: 'https://deepinfra.com/login',
+    signupHint: 'Login → API keys',
+    rateLimits: 'Free dev tier (low-latency quota)',
+  },
+  fireworks: {
+    label: 'Fireworks AI',
+    color: chalk.rgb(255, 80, 50),
+    signupUrl: 'https://fireworks.ai',
+    signupHint: 'Create account → Generate API key',
+    rateLimits: '$1 free credits (new dev accounts)',
+  },
+  codestral: {
+    label: 'Mistral Codestral',
+    color: chalk.rgb(255, 100, 100),
+    signupUrl: 'https://codestral.mistral.ai',
+    signupHint: 'API Keys → Create',
+    rateLimits: '30 req/min, 2000/day',
+  },
+  hyperbolic: {
+    label: 'Hyperbolic',
+    color: chalk.rgb(0, 200, 150),
+    signupUrl: 'https://app.hyperbolic.ai/settings',
+    signupHint: 'Settings → API Keys',
+    rateLimits: '$1 free trial credits',
+  },
+  scaleway: {
+    label: 'Scaleway',
+    color: chalk.rgb(130, 0, 250),
+    signupUrl: 'https://console.scaleway.com/iam/api-keys',
+    signupHint: 'IAM → API Keys',
+    rateLimits: '1M free tokens',
+  },
+  googleai: {
+    label: 'Google AI Studio',
+    color: chalk.rgb(66, 133, 244),
+    signupUrl: 'https://aistudio.google.com/apikey',
+    signupHint: 'Get API key',
+    rateLimits: '14.4K req/day, 30/min',
+  },
+  zai: {
+    label: 'ZAI',
+    color: chalk.rgb(0, 150, 255),
+    signupUrl: 'https://open.z.ai',
+    signupHint: 'Get free API key',
+    rateLimits: 'Free tier (generous quota)',
+  },
+}
+
 // 📖 OpenCode config location varies by platform
 // 📖 Windows: %APPDATA%\opencode\opencode.json (or sometimes ~/.config/opencode)
 // 📖 macOS/Linux: ~/.config/opencode/opencode.json
@@ -767,6 +1346,45 @@ const OPENCODE_CONFIG = isWindows
 
 // 📖 Fallback to .config on Windows if AppData doesn't exist
 const OPENCODE_CONFIG_FALLBACK = join(homedir(), '.config', 'opencode', 'opencode.json')
+const OPENCODE_PORT_RANGE_START = 4096
+const OPENCODE_PORT_RANGE_END = 5096
+
+// 📖 isTcpPortAvailable: checks if a local TCP port is free for OpenCode.
+// 📖 Used to avoid tmux sub-agent port conflicts when multiple projects run in parallel.
+function isTcpPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = createServer()
+    server.once('error', () => resolve(false))
+    server.once('listening', () => {
+      server.close(() => resolve(true))
+    })
+    server.listen(port)
+  })
+}
+
+// 📖 resolveOpenCodeTmuxPort: selects a safe port for OpenCode when inside tmux.
+// 📖 Priority:
+// 📖 1) OPENCODE_PORT from env (if valid and available)
+// 📖 2) First available port in 4096-5095
+async function resolveOpenCodeTmuxPort() {
+  const envPortRaw = process.env.OPENCODE_PORT
+  const envPort = Number.parseInt(envPortRaw || '', 10)
+
+  if (Number.isInteger(envPort) && envPort > 0 && envPort <= 65535) {
+    if (await isTcpPortAvailable(envPort)) {
+      return { port: envPort, source: 'env' }
+    }
+    console.log(chalk.yellow(`  ⚠ OPENCODE_PORT=${envPort} is already in use; selecting another port for this run.`))
+  }
+
+  for (let port = OPENCODE_PORT_RANGE_START; port < OPENCODE_PORT_RANGE_END; port++) {
+    if (await isTcpPortAvailable(port)) {
+      return { port, source: 'auto' }
+    }
+  }
+
+  return null
+}
 
 function getOpenCodeConfigPath() {
   if (existsSync(OPENCODE_CONFIG)) return OPENCODE_CONFIG
@@ -809,16 +1427,70 @@ function checkNvidiaNimConfig() {
   )
 }
 
+// ─── Shared OpenCode spawn helper ──────────────────────────────────────────────
+// 📖 Resolves the actual API key from config/env and passes it as an env var
+// 📖 to the child process so OpenCode's {env:GROQ_API_KEY} references work
+// 📖 even when the key is only in ~/.free-coding-models.json (not in shell env).
+async function spawnOpenCode(args, providerKey, fcmConfig) {
+  const envVarName = ENV_VAR_NAMES[providerKey]
+  const resolvedKey = getApiKey(fcmConfig, providerKey)
+  const childEnv = { ...process.env }
+  const finalArgs = [...args]
+  const hasExplicitPortArg = finalArgs.includes('--port')
+  if (envVarName && resolvedKey) childEnv[envVarName] = resolvedKey
+
+  // 📖 In tmux, OpenCode sub-agents need a listening port to open extra panes.
+  // 📖 We auto-pick one if the user did not provide --port explicitly.
+  if (process.env.TMUX && !hasExplicitPortArg) {
+    const tmuxPort = await resolveOpenCodeTmuxPort()
+    if (tmuxPort) {
+      const portValue = String(tmuxPort.port)
+      childEnv.OPENCODE_PORT = portValue
+      finalArgs.push('--port', portValue)
+      if (tmuxPort.source === 'env') {
+        console.log(chalk.dim(`  📺 tmux detected — using OPENCODE_PORT=${portValue}.`))
+      } else {
+        console.log(chalk.dim(`  📺 tmux detected — using OpenCode port ${portValue} for sub-agent panes.`))
+      }
+    } else {
+      console.log(chalk.yellow(`  ⚠ tmux detected but no free OpenCode port found in ${OPENCODE_PORT_RANGE_START}-${OPENCODE_PORT_RANGE_END - 1}; launching without --port.`))
+    }
+  }
+
+  const { spawn } = await import('child_process')
+  const child = spawn('opencode', finalArgs, {
+    stdio: 'inherit',
+    shell: true,
+    detached: false,
+    env: childEnv
+  })
+
+  return new Promise((resolve, reject) => {
+    child.on('exit', resolve)
+    child.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        console.error(chalk.red('\n  X Could not find "opencode" -- is it installed and in your PATH?'))
+        console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
+        resolve(1)
+      } else {
+        reject(err)
+      }
+    })
+  })
+}
+
 // ─── Start OpenCode ────────────────────────────────────────────────────────────
 // 📖 Launches OpenCode with the selected model.
-// 📖 Handles all 3 providers: nvidia (needs custom provider config), groq & cerebras (built-in in OpenCode).
+// 📖 Handles nvidia + all OpenAI-compatible providers defined in sources.js.
 // 📖 For nvidia: checks if NIM is configured, sets provider.models entry, spawns with nvidia/model-id.
-// 📖 For groq/cerebras: OpenCode has built-in support — just sets model in config and spawns.
+// 📖 For groq/cerebras: OpenCode has built-in support -- just sets model in config and spawns.
 // 📖 Model format: { modelId, label, tier, providerKey }
-async function startOpenCode(model) {
+// 📖 fcmConfig: the free-coding-models config (for resolving API keys)
+async function startOpenCode(model, fcmConfig) {
   const providerKey = model.providerKey ?? 'nvidia'
-  // 📖 Full model reference string used in OpenCode config and --model flag
-  const modelRef = `${providerKey}/${model.modelId}`
+  // 📖 Map model ID to OpenCode's built-in ID if it differs from our source ID
+  const ocModelId = getOpenCodeModelId(providerKey, model.modelId)
+  const modelRef = `${providerKey}/${ocModelId}`
 
   if (providerKey === 'nvidia') {
     // 📖 NVIDIA NIM needs a custom provider block in OpenCode config (not built-in)
@@ -840,11 +1512,9 @@ async function startOpenCode(model) {
       config.model = modelRef
 
       // 📖 Register the model in the nvidia provider's models section
-      // 📖 OpenCode requires models to be explicitly listed in provider.models
-      // 📖 to recognize them — without this, it falls back to the previous default
       if (config.provider?.nvidia) {
         if (!config.provider.nvidia.models) config.provider.nvidia.models = {}
-        config.provider.nvidia.models[model.modelId] = { name: model.label }
+        config.provider.nvidia.models[ocModelId] = { name: model.label }
       }
 
       saveOpenCodeConfig(config)
@@ -863,27 +1533,9 @@ async function startOpenCode(model) {
       console.log(chalk.dim('  Starting OpenCode…'))
       console.log()
 
-      const { spawn } = await import('child_process')
-      const child = spawn('opencode', ['--model', modelRef], {
-        stdio: 'inherit',
-        shell: true,
-        detached: false
-      })
-
-      await new Promise((resolve, reject) => {
-        child.on('exit', resolve)
-        child.on('error', (err) => {
-          if (err.code === 'ENOENT') {
-            console.error(chalk.red('\n  ✗ Could not find "opencode" — is it installed and in your PATH?'))
-            console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
-            resolve(1)
-          } else {
-            reject(err)
-          }
-        })
-      })
+      await spawnOpenCode(['--model', modelRef], providerKey, fcmConfig)
     } else {
-      // 📖 NVIDIA NIM not configured — show install prompt
+      // 📖 NVIDIA NIM not configured -- show install prompt
       console.log(chalk.yellow('  ⚠ NVIDIA NIM not configured in OpenCode'))
       console.log()
       console.log(chalk.dim('  Starting OpenCode with installation prompt…'))
@@ -914,29 +1566,19 @@ After installation, you can use: opencode --model ${modelRef}`
       console.log(chalk.dim('  Starting OpenCode…'))
       console.log()
 
-      const { spawn } = await import('child_process')
-      const child = spawn('opencode', [], {
-        stdio: 'inherit',
-        shell: true,
-        detached: false
-      })
-
-      await new Promise((resolve, reject) => {
-        child.on('exit', resolve)
-        child.on('error', (err) => {
-          if (err.code === 'ENOENT') {
-            console.error(chalk.red('\n  ✗ Could not find "opencode" — is it installed and in your PATH?'))
-            console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
-            resolve(1)
-          } else {
-            reject(err)
-          }
-        })
-      })
+      await spawnOpenCode([], providerKey, fcmConfig)
     }
   } else {
-    // 📖 Groq: built-in OpenCode provider — needs provider block with apiKey in opencode.json.
-    // 📖 Cerebras: NOT built-in — needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
+    if (providerKey === 'replicate') {
+      console.log(chalk.yellow('  ⚠ Replicate models are monitor-only for now in OpenCode mode.'))
+      console.log(chalk.dim('    Reason: Replicate uses /v1/predictions instead of OpenAI chat-completions.'))
+      console.log(chalk.dim('    You can still benchmark this model in the TUI and use other providers for OpenCode launch.'))
+      console.log()
+      return
+    }
+
+    // 📖 Groq: built-in OpenCode provider -- needs provider block with apiKey in opencode.json.
+    // 📖 Cerebras: NOT built-in -- needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
     // 📖 Both need the model registered in provider.<key>.models so OpenCode can find it.
     console.log(chalk.green(`  🚀 Setting ${chalk.bold(model.label)} as default…`))
     console.log(chalk.dim(`  Model: ${modelRef}`))
@@ -970,13 +1612,117 @@ After installation, you can use: opencode --model ${modelRef}`
           },
           models: {}
         }
+      } else if (providerKey === 'sambanova') {
+        // 📖 SambaNova is OpenAI-compatible — uses @ai-sdk/openai-compatible with their base URL
+        config.provider.sambanova = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'SambaNova',
+          options: {
+            baseURL: 'https://api.sambanova.ai/v1',
+            apiKey: '{env:SAMBANOVA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'openrouter') {
+        config.provider.openrouter = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'OpenRouter',
+          options: {
+            baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: '{env:OPENROUTER_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'huggingface') {
+        config.provider.huggingface = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hugging Face Inference',
+          options: {
+            baseURL: 'https://router.huggingface.co/v1',
+            apiKey: '{env:HUGGINGFACE_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'deepinfra') {
+        config.provider.deepinfra = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'DeepInfra',
+          options: {
+            baseURL: 'https://api.deepinfra.com/v1/openai',
+            apiKey: '{env:DEEPINFRA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'fireworks') {
+        config.provider.fireworks = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Fireworks AI',
+          options: {
+            baseURL: 'https://api.fireworks.ai/inference/v1',
+            apiKey: '{env:FIREWORKS_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'codestral') {
+        config.provider.codestral = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Mistral Codestral',
+          options: {
+            baseURL: 'https://codestral.mistral.ai/v1',
+            apiKey: '{env:CODESTRAL_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'hyperbolic') {
+        config.provider.hyperbolic = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hyperbolic',
+          options: {
+            baseURL: 'https://api.hyperbolic.xyz/v1',
+            apiKey: '{env:HYPERBOLIC_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'scaleway') {
+        config.provider.scaleway = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Scaleway',
+          options: {
+            baseURL: 'https://api.scaleway.ai/v1',
+            apiKey: '{env:SCALEWAY_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'googleai') {
+        config.provider.googleai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Google AI Studio',
+          options: {
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+            apiKey: '{env:GOOGLE_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'zai') {
+        config.provider.zai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'ZAI',
+          options: {
+            baseURL: 'https://api.z.ai/api/coding/paas/v4',
+            apiKey: '{env:ZAI_API_KEY}'
+          },
+          models: {}
+        }
       }
     }
 
     // 📖 Register the model in the provider's models section
-    // 📖 OpenCode requires models to be explicitly listed to recognize them
-    if (!config.provider[providerKey].models) config.provider[providerKey].models = {}
-    config.provider[providerKey].models[model.modelId] = { name: model.label }
+    // 📖 Only register custom models -- skip if the model maps to a built-in OpenCode ID
+    const isBuiltinMapped = OPENCODE_MODEL_MAP[providerKey]?.[model.modelId]
+    if (!isBuiltinMapped) {
+      if (!config.provider[providerKey].models) config.provider[providerKey].models = {}
+      config.provider[providerKey].models[ocModelId] = { name: model.label }
+    }
 
     config.model = modelRef
     saveOpenCodeConfig(config)
@@ -995,37 +1741,20 @@ After installation, you can use: opencode --model ${modelRef}`
     console.log(chalk.dim('  Starting OpenCode…'))
     console.log()
 
-    const { spawn } = await import('child_process')
-    const child = spawn('opencode', ['--model', modelRef], {
-      stdio: 'inherit',
-      shell: true,
-      detached: false
-    })
-
-    await new Promise((resolve, reject) => {
-      child.on('exit', resolve)
-      child.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-          console.error(chalk.red('\n  ✗ Could not find "opencode" — is it installed and in your PATH?'))
-          console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
-          resolve(1)
-        } else {
-          reject(err)
-        }
-      })
-    })
+    await spawnOpenCode(['--model', modelRef], providerKey, fcmConfig)
   }
 }
 
 // ─── Start OpenCode Desktop ─────────────────────────────────────────────────────
 // 📖 startOpenCodeDesktop: Same config logic as startOpenCode, but opens the Desktop app.
 // 📖 OpenCode Desktop shares config at the same location as CLI.
-// 📖 Handles all 3 providers: nvidia (needs custom provider config), groq & cerebras (built-in).
+// 📖 Handles nvidia + all OpenAI-compatible providers defined in sources.js.
 // 📖 No need to wait for exit — Desktop app stays open independently.
-async function startOpenCodeDesktop(model) {
+async function startOpenCodeDesktop(model, fcmConfig) {
   const providerKey = model.providerKey ?? 'nvidia'
-  // 📖 Full model reference string used in OpenCode config and --model flag
-  const modelRef = `${providerKey}/${model.modelId}`
+  // 📖 Map model ID to OpenCode's built-in ID if it differs from our source ID
+  const ocModelId = getOpenCodeModelId(providerKey, model.modelId)
+  const modelRef = `${providerKey}/${ocModelId}`
 
   // 📖 Helper to open the Desktop app based on platform
   const launchDesktop = async () => {
@@ -1074,7 +1803,7 @@ async function startOpenCodeDesktop(model) {
 
       if (config.provider?.nvidia) {
         if (!config.provider.nvidia.models) config.provider.nvidia.models = {}
-        config.provider.nvidia.models[model.modelId] = { name: model.label }
+        config.provider.nvidia.models[ocModelId] = { name: model.label }
       }
 
       saveOpenCodeConfig(config)
@@ -1120,6 +1849,14 @@ ${isWindows ? 'set NVIDIA_API_KEY=your_key_here' : 'export NVIDIA_API_KEY=your_k
       console.log()
     }
   } else {
+    if (providerKey === 'replicate') {
+      console.log(chalk.yellow('  ⚠ Replicate models are monitor-only for now in OpenCode Desktop mode.'))
+      console.log(chalk.dim('    Reason: Replicate uses /v1/predictions instead of OpenAI chat-completions.'))
+      console.log(chalk.dim('    You can still benchmark this model in the TUI and use other providers for Desktop launch.'))
+      console.log()
+      return
+    }
+
     // 📖 Groq: built-in OpenCode provider — needs provider block with apiKey in opencode.json.
     // 📖 Cerebras: NOT built-in — needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
     // 📖 Both need the model registered in provider.<key>.models so OpenCode can find it.
@@ -1153,12 +1890,117 @@ ${isWindows ? 'set NVIDIA_API_KEY=your_key_here' : 'export NVIDIA_API_KEY=your_k
           },
           models: {}
         }
+      } else if (providerKey === 'sambanova') {
+        // 📖 SambaNova is OpenAI-compatible — uses @ai-sdk/openai-compatible with their base URL
+        config.provider.sambanova = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'SambaNova',
+          options: {
+            baseURL: 'https://api.sambanova.ai/v1',
+            apiKey: '{env:SAMBANOVA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'openrouter') {
+        config.provider.openrouter = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'OpenRouter',
+          options: {
+            baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: '{env:OPENROUTER_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'huggingface') {
+        config.provider.huggingface = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hugging Face Inference',
+          options: {
+            baseURL: 'https://router.huggingface.co/v1',
+            apiKey: '{env:HUGGINGFACE_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'deepinfra') {
+        config.provider.deepinfra = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'DeepInfra',
+          options: {
+            baseURL: 'https://api.deepinfra.com/v1/openai',
+            apiKey: '{env:DEEPINFRA_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'fireworks') {
+        config.provider.fireworks = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Fireworks AI',
+          options: {
+            baseURL: 'https://api.fireworks.ai/inference/v1',
+            apiKey: '{env:FIREWORKS_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'codestral') {
+        config.provider.codestral = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Mistral Codestral',
+          options: {
+            baseURL: 'https://codestral.mistral.ai/v1',
+            apiKey: '{env:CODESTRAL_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'hyperbolic') {
+        config.provider.hyperbolic = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Hyperbolic',
+          options: {
+            baseURL: 'https://api.hyperbolic.xyz/v1',
+            apiKey: '{env:HYPERBOLIC_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'scaleway') {
+        config.provider.scaleway = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Scaleway',
+          options: {
+            baseURL: 'https://api.scaleway.ai/v1',
+            apiKey: '{env:SCALEWAY_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'googleai') {
+        config.provider.googleai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'Google AI Studio',
+          options: {
+            baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+            apiKey: '{env:GOOGLE_API_KEY}'
+          },
+          models: {}
+        }
+      } else if (providerKey === 'zai') {
+        config.provider.zai = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'ZAI',
+          options: {
+            baseURL: 'https://api.z.ai/api/coding/paas/v4',
+            apiKey: '{env:ZAI_API_KEY}'
+          },
+          models: {}
+        }
       }
     }
 
     // 📖 Register the model in the provider's models section
-    if (!config.provider[providerKey].models) config.provider[providerKey].models = {}
-    config.provider[providerKey].models[model.modelId] = { name: model.label }
+    // 📖 Only register custom models -- skip if the model maps to a built-in OpenCode ID
+    const isBuiltinMapped = OPENCODE_MODEL_MAP[providerKey]?.[model.modelId]
+    if (!isBuiltinMapped) {
+      if (!config.provider[providerKey].models) config.provider[providerKey].models = {}
+      config.provider[providerKey].models[ocModelId] = { name: model.label }
+    }
 
     config.model = modelRef
     saveOpenCodeConfig(config)
@@ -1320,7 +2162,7 @@ async function runFiableMode(config) {
   const pingPromises = results.map(r => {
     const rApiKey = getApiKey(config, r.providerKey)
     const url = sources[r.providerKey]?.url
-    return ping(rApiKey, r.modelId, url).then(({ code, ms }) => {
+    return ping(rApiKey, r.modelId, r.providerKey, url).then(({ code, ms }) => {
       r.pings.push({ ms, code })
       if (code === '200') {
         r.status = 'up'
@@ -1384,6 +2226,8 @@ async function main() {
 
   // 📖 Load JSON config (auto-migrates old plain-text ~/.free-coding-models if needed)
   const config = loadConfig()
+  ensureTelemetryConfig(config)
+  ensureFavoritesConfig(config)
 
   // 📖 Check if any provider has a key — if not, run the first-time setup wizard
   const hasAnyKey = Object.keys(sources).some(pk => !!getApiKey(config, pk))
@@ -1399,8 +2243,26 @@ async function main() {
     }
   }
 
+  // 📖 Ask analytics consent only when not explicitly controlled by env or CLI flag.
+  await promptTelemetryConsent(config, cliArgs)
+
   // 📖 Backward-compat: keep apiKey var for startOpenClaw() which still needs it
   let apiKey = getApiKey(config, 'nvidia')
+
+  // 📖 Default mode: OpenCode CLI
+  let mode = 'opencode'
+  if (cliArgs.openClawMode) mode = 'openclaw'
+  else if (cliArgs.openCodeDesktopMode) mode = 'opencode-desktop'
+  else if (cliArgs.openCodeMode) mode = 'opencode'
+
+  // 📖 Track app opening early so fast exits are still counted.
+  // 📖 Must run before update checks because npm registry lookups can add startup delay.
+  void sendUsageTelemetry(config, cliArgs, {
+    event: 'app_start',
+    version: LOCAL_VERSION,
+    mode,
+    ts: new Date().toISOString(),
+  })
 
   // 📖 Check for updates in the background
   let latestVersion = null
@@ -1409,9 +2271,6 @@ async function main() {
   } catch {
     // Silently fail - don't block the app if npm registry is unreachable
   }
-
-  // 📖 Default mode: OpenCode CLI
-  let mode = 'opencode'
 
   // 📖 Show update notification menu if a new version is available
   if (latestVersion) {
@@ -1442,6 +2301,7 @@ async function main() {
 
   // 📖 Build results from MODELS — only include enabled providers
   // 📖 Each result gets providerKey so ping() knows which URL + API key to use
+
   let results = MODELS
     .filter(([,,,,,providerKey]) => isProviderEnabled(config, providerKey))
     .map(([modelId, label, tier, sweScore, ctx, providerKey], i) => ({
@@ -1451,12 +2311,13 @@ async function main() {
       httpCode: null,
       hidden: false,  // 📖 Simple flag to hide/show models
     }))
+  syncFavoriteFlags(results, config)
 
   // 📖 Clamp scrollOffset so cursor is always within the visible viewport window.
   // 📖 Called after every cursor move, sort change, and terminal resize.
   const adjustScrollOffset = (st) => {
-    const total = st.results.length
-    let maxSlots = st.terminalRows - 10  // 5 header + 5 footer
+    const total = st.visibleSorted ? st.visibleSorted.length : st.results.filter(r => !r.hidden).length
+    let maxSlots = st.terminalRows - TABLE_FIXED_LINES
     if (maxSlots < 1) maxSlots = 1
     if (total <= maxSlots) { st.scrollOffset = 0; return }
     // Ensure cursor is not above the visible window
@@ -1501,7 +2362,12 @@ async function main() {
     settingsEditMode: false,      // 📖 Whether we're in inline key editing mode
     settingsEditBuffer: '',       // 📖 Typed characters for the API key being edited
     settingsTestResults: {},      // 📖 { providerKey: 'pending'|'ok'|'fail'|null }
+    settingsUpdateState: 'idle',  // 📖 'idle'|'checking'|'available'|'up-to-date'|'error'|'installing'
+    settingsUpdateLatestVersion: null, // 📖 Latest npm version discovered from manual check
+    settingsUpdateError: null,    // 📖 Last update-check error message for maintenance row
     config,                       // 📖 Live reference to the config object (updated on save)
+    visibleSorted: [],            // 📖 Cached visible+sorted models — shared between render loop and key handlers
+    helpVisible: false,           // 📖 Whether the help overlay (K key) is active
   }
 
   // 📖 Re-clamp viewport on terminal resize
@@ -1527,10 +2393,24 @@ async function main() {
   // 📖 0=All, 1=S+, 2=S, 3=A+, 4=A, 5=A-, 6=B+, 7=B, 8=C
   const TIER_CYCLE = [null, 'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
   let tierFilterMode = 0
+
+  // 📖 originFilterMode: index into ORIGIN_CYCLE, 0=All, then each provider key in order
+  const ORIGIN_CYCLE = [null, ...Object.keys(sources)]
+  let originFilterMode = 0
+
   function applyTierFilter() {
     const activeTier = TIER_CYCLE[tierFilterMode]
+    const activeOrigin = ORIGIN_CYCLE[originFilterMode]
     state.results.forEach(r => {
-      r.hidden = activeTier !== null && r.tier !== activeTier
+      // 📖 Favorites stay visible regardless of tier/origin filters.
+      if (r.isFavorite) {
+        r.hidden = false
+        return
+      }
+      // 📖 Apply both tier and origin filters — model is hidden if it fails either
+      const tierHide = activeTier !== null && r.tier !== activeTier
+      const originHide = activeOrigin !== null && r.providerKey !== activeOrigin
+      r.hidden = tierHide || originHide
     })
     return state.results
   }
@@ -1542,18 +2422,22 @@ async function main() {
   // 📖 Key "T" in settings = test API key for selected provider.
   function renderSettings() {
     const providerKeys = Object.keys(sources)
+    const telemetryRowIdx = providerKeys.length
+    const updateRowIdx = providerKeys.length + 1
     const EL = '\x1b[K'
     const lines = []
 
     lines.push('')
     lines.push(`  ${chalk.bold('⚙  Settings')}  ${chalk.dim('— free-coding-models v' + LOCAL_VERSION)}`)
     lines.push('')
-    lines.push(`  ${chalk.bold('Providers')}`)
+    lines.push(`  ${chalk.bold('🧩 Providers')}`)
+    lines.push(`  ${chalk.dim('  ' + '─'.repeat(112))}`)
     lines.push('')
 
     for (let i = 0; i < providerKeys.length; i++) {
       const pk = providerKeys[i]
       const src = sources[pk]
+      const meta = PROVIDER_METADATA[pk] || {}
       const isCursor = i === state.settingsCursor
       const enabled = isProviderEnabled(state.config, pk)
       const keyVal = state.config.apiKeys?.[pk] ?? ''
@@ -1577,23 +2461,134 @@ async function main() {
       if (testResult === 'pending') testBadge = chalk.yellow('[Testing…]')
       else if (testResult === 'ok')   testBadge = chalk.greenBright('[Test ✅]')
       else if (testResult === 'fail') testBadge = chalk.red('[Test ❌]')
+      const rateSummary = chalk.dim((meta.rateLimits || 'No limit info').slice(0, 36))
 
-      const enabledBadge = enabled ? chalk.greenBright('✅') : chalk.dim('⬜')
-      const providerName = chalk.bold(src.name.padEnd(10))
+      const enabledBadge = enabled ? chalk.greenBright('✅') : chalk.redBright('❌')
+      const providerName = chalk.bold((meta.label || src.name || pk).slice(0, 22).padEnd(22))
       const bullet = isCursor ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
 
-      const row = `${bullet}[ ${enabledBadge} ] ${providerName}  ${keyDisplay.padEnd(30)}  ${testBadge}`
+      const row = `${bullet}[ ${enabledBadge} ] ${providerName}  ${keyDisplay.padEnd(30)}  ${testBadge}  ${rateSummary}`
       lines.push(isCursor ? chalk.bgRgb(30, 30, 60)(row) : row)
+    }
+
+    lines.push('')
+    const selectedProviderKey = providerKeys[Math.min(state.settingsCursor, providerKeys.length - 1)]
+    const selectedSource = sources[selectedProviderKey]
+    const selectedMeta = PROVIDER_METADATA[selectedProviderKey] || {}
+    if (selectedSource && state.settingsCursor < telemetryRowIdx) {
+      const selectedKey = getApiKey(state.config, selectedProviderKey)
+      const setupStatus = selectedKey ? chalk.green('API key detected ✅') : chalk.yellow('API key missing ⚠')
+      lines.push(`  ${chalk.bold('Setup Instructions')} — ${selectedMeta.label || selectedSource.name || selectedProviderKey}`)
+      lines.push(chalk.dim(`  1) Create a ${selectedMeta.label || selectedSource.name} account: ${selectedMeta.signupUrl || 'signup link missing'}`))
+      lines.push(chalk.dim(`  2) ${selectedMeta.signupHint || 'Generate an API key and paste it with Enter on this row'}`))
+      lines.push(chalk.dim(`  3) Press ${chalk.yellow('T')} to test your key. Status: ${setupStatus}`))
+      lines.push('')
+    }
+
+    lines.push(`  ${chalk.bold('📊 Analytics')}`)
+    lines.push(`  ${chalk.dim('  ' + '─'.repeat(112))}`)
+    lines.push('')
+
+    const telemetryCursor = state.settingsCursor === telemetryRowIdx
+    const telemetryEnabled = state.config.telemetry?.enabled === true
+    const telemetryStatus = telemetryEnabled ? chalk.greenBright('✅ Enabled') : chalk.redBright('❌ Disabled')
+    const telemetryRowBullet = telemetryCursor ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
+    const telemetryEnv = parseTelemetryEnv(process.env.FREE_CODING_MODELS_TELEMETRY)
+    const telemetrySource = telemetryEnv === null
+      ? chalk.dim('[Config]')
+      : chalk.yellow('[Env override]')
+    const telemetryRow = `${telemetryRowBullet}${chalk.bold('Anonymous usage analytics').padEnd(44)} ${telemetryStatus}  ${telemetrySource}`
+    lines.push(telemetryCursor ? chalk.bgRgb(30, 30, 60)(telemetryRow) : telemetryRow)
+
+    lines.push('')
+    lines.push(`  ${chalk.bold('🛠 Maintenance')}`)
+    lines.push(`  ${chalk.dim('  ' + '─'.repeat(112))}`)
+    lines.push('')
+
+    const updateCursor = state.settingsCursor === updateRowIdx
+    const updateBullet = updateCursor ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
+    const updateState = state.settingsUpdateState
+    const latestFound = state.settingsUpdateLatestVersion
+    const updateActionLabel = updateState === 'available' && latestFound
+      ? `Install update (v${latestFound})`
+      : 'Check for updates manually'
+    let updateStatus = chalk.dim('Press Enter or U to check npm registry')
+    if (updateState === 'checking') updateStatus = chalk.yellow('Checking npm registry…')
+    if (updateState === 'available' && latestFound) updateStatus = chalk.greenBright(`Update available: v${latestFound} (Enter to install)`)
+    if (updateState === 'up-to-date') updateStatus = chalk.green('Already on latest version')
+    if (updateState === 'error') updateStatus = chalk.red('Check failed (press U to retry)')
+    if (updateState === 'installing') updateStatus = chalk.cyan('Installing update…')
+    const updateRow = `${updateBullet}${chalk.bold(updateActionLabel).padEnd(44)} ${updateStatus}`
+    lines.push(updateCursor ? chalk.bgRgb(30, 30, 60)(updateRow) : updateRow)
+    if (updateState === 'error' && state.settingsUpdateError) {
+      lines.push(chalk.red(`      ${state.settingsUpdateError}`))
     }
 
     lines.push('')
     if (state.settingsEditMode) {
       lines.push(chalk.dim('  Type API key  •  Enter Save  •  Esc Cancel'))
     } else {
-      lines.push(chalk.dim('  ↑↓ Navigate  •  Enter Edit key  •  Space Toggle enabled  •  T Test key  •  Esc Close'))
+      lines.push(chalk.dim('  ↑↓ Navigate  •  Enter Edit key / Toggle analytics / Check-or-Install update  •  Space Toggle enabled  •  T Test key  •  U Check updates  •  Esc Close'))
     }
     lines.push('')
 
+    const cleared = lines.map(l => l + EL)
+    const remaining = state.terminalRows > 0 ? Math.max(0, state.terminalRows - cleared.length) : 0
+    for (let i = 0; i < remaining; i++) cleared.push(EL)
+    return cleared.join('\n')
+  }
+
+  // ─── Help overlay renderer ────────────────────────────────────────────────
+  // 📖 renderHelp: Draw the help overlay listing all key bindings.
+  // 📖 Toggled with K key. Gives users a quick reference without leaving the TUI.
+  function renderHelp() {
+    const EL = '\x1b[K'
+    const lines = []
+    lines.push('')
+    lines.push(`  ${chalk.bold('❓ Keyboard Shortcuts')}  ${chalk.dim('— press K or Esc to close')}`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Main TUI')}`)
+    lines.push(`  ${chalk.bold('Navigation')}`)
+    lines.push(`  ${chalk.yellow('↑↓')}           Navigate rows`)
+    lines.push(`  ${chalk.yellow('Enter')}        Select model and launch`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Sorting')}`)
+    lines.push(`  ${chalk.yellow('R')} Rank  ${chalk.yellow('Y')} Tier  ${chalk.yellow('O')} Origin  ${chalk.yellow('M')} Model`)
+    lines.push(`  ${chalk.yellow('L')} Latest ping  ${chalk.yellow('A')} Avg ping  ${chalk.yellow('S')} SWE-bench score`)
+    lines.push(`  ${chalk.yellow('C')} Context window  ${chalk.yellow('H')} Health  ${chalk.yellow('V')} Verdict  ${chalk.yellow('U')} Uptime`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Filters')}`)
+    lines.push(`  ${chalk.yellow('T')}  Cycle tier filter  ${chalk.dim('(All → S+ → S → A+ → A → A- → B+ → B → C → All)')}`)
+    lines.push(`  ${chalk.yellow('N')}  Cycle origin filter  ${chalk.dim('(All → NIM → Groq → Cerebras → ... each provider → All)')}`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Controls')}`)
+    lines.push(`  ${chalk.yellow('W')}  Decrease ping interval (faster)`)
+    lines.push(`  ${chalk.yellow('X')}  Increase ping interval (slower)`)
+    lines.push(`  ${chalk.yellow('Z')}  Cycle launch mode  ${chalk.dim('(OpenCode CLI → OpenCode Desktop → OpenClaw)')}`)
+    lines.push(`  ${chalk.yellow('F')}  Toggle favorite on selected row  ${chalk.dim('(⭐ pinned at top, persisted)')}`)
+    lines.push(`  ${chalk.yellow('P')}  Open settings  ${chalk.dim('(manage API keys, provider toggles, analytics, manual update)')}`)
+    lines.push(`  ${chalk.yellow('K')} / ${chalk.yellow('Esc')}  Show/hide this help`)
+    lines.push(`  ${chalk.yellow('Ctrl+C')}  Exit`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('Settings (P)')}`)
+    lines.push(`  ${chalk.yellow('↑↓')}           Navigate rows`)
+    lines.push(`  ${chalk.yellow('Enter')}        Edit key / toggle analytics / check-install update`)
+    lines.push(`  ${chalk.yellow('Space')}        Toggle provider enable/disable`)
+    lines.push(`  ${chalk.yellow('T')}            Test selected provider key`)
+    lines.push(`  ${chalk.yellow('U')}            Check updates manually`)
+    lines.push(`  ${chalk.yellow('Esc')}          Close settings`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('CLI Flags')}`)
+    lines.push(`  ${chalk.dim('Usage: free-coding-models [options]')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --opencode')}           ${chalk.dim('OpenCode CLI mode')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --opencode-desktop')}   ${chalk.dim('OpenCode Desktop mode')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --openclaw')}           ${chalk.dim('OpenClaw mode')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --best')}               ${chalk.dim('Only top tiers (A+, S, S+)')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --fiable')}             ${chalk.dim('10s reliability analysis')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --tier S|A|B|C')}       ${chalk.dim('Filter by tier letter')}`)
+    lines.push(`  ${chalk.cyan('free-coding-models --no-telemetry')}       ${chalk.dim('Disable telemetry for this run')}`)
+    lines.push(`  ${chalk.dim('Flags can be combined: --openclaw --tier S')}`)
+    lines.push('')
     const cleared = lines.map(l => l + EL)
     const remaining = state.terminalRows > 0 ? Math.max(0, state.terminalRows - cleared.length) : 0
     for (let i = 0; i < remaining; i++) cleared.push(EL)
@@ -1613,15 +2608,51 @@ async function main() {
     if (!testModel) { state.settingsTestResults[providerKey] = 'fail'; return }
 
     state.settingsTestResults[providerKey] = 'pending'
-    const { code } = await ping(testKey, testModel, src.url)
+    const { code } = await ping(testKey, testModel, providerKey, src.url)
     state.settingsTestResults[providerKey] = code === '200' ? 'ok' : 'fail'
+  }
+
+  // 📖 Manual update checker from settings; keeps status visible in maintenance row.
+  async function checkUpdatesFromSettings() {
+    if (state.settingsUpdateState === 'checking' || state.settingsUpdateState === 'installing') return
+    state.settingsUpdateState = 'checking'
+    state.settingsUpdateError = null
+    const { latestVersion, error } = await checkForUpdateDetailed()
+    if (error) {
+      state.settingsUpdateState = 'error'
+      state.settingsUpdateLatestVersion = null
+      state.settingsUpdateError = error
+      return
+    }
+    if (latestVersion) {
+      state.settingsUpdateState = 'available'
+      state.settingsUpdateLatestVersion = latestVersion
+      state.settingsUpdateError = null
+      return
+    }
+    state.settingsUpdateState = 'up-to-date'
+    state.settingsUpdateLatestVersion = null
+    state.settingsUpdateError = null
+  }
+
+  // 📖 Leaves TUI cleanly, then runs npm global update command.
+  function launchUpdateFromSettings(latestVersion) {
+    if (!latestVersion) return
+    state.settingsUpdateState = 'installing'
+    clearInterval(ticker)
+    clearTimeout(state.pingIntervalObj)
+    process.stdin.removeListener('keypress', onKeyPress)
+    if (process.stdin.isTTY) process.stdin.setRawMode(false)
+    process.stdin.pause()
+    process.stdout.write(ALT_LEAVE)
+    runUpdate(latestVersion)
   }
 
   // Apply CLI --tier filter if provided
   if (cliArgs.tierFilter) {
     const allowed = TIER_LETTER_MAP[cliArgs.tierFilter]
     state.results.forEach(r => {
-      r.hidden = !allowed.includes(r.tier)
+      r.hidden = r.isFavorite ? false : !allowed.includes(r.tier)
     })
   }
 
@@ -1635,9 +2666,17 @@ async function main() {
   const onKeyPress = async (str, key) => {
     if (!key) return
 
+    // 📖 Help overlay: Esc or K closes it — handle before everything else so Esc isn't swallowed elsewhere
+    if (state.helpVisible && (key.name === 'escape' || key.name === 'k')) {
+      state.helpVisible = false
+      return
+    }
+
     // ─── Settings overlay keyboard handling ───────────────────────────────────
     if (state.settingsOpen) {
       const providerKeys = Object.keys(sources)
+      const telemetryRowIdx = providerKeys.length
+      const updateRowIdx = providerKeys.length + 1
 
       // 📖 Edit mode: capture typed characters for the API key
       if (state.settingsEditMode) {
@@ -1665,7 +2704,7 @@ async function main() {
       }
 
       // 📖 Normal settings navigation
-      if (key.name === 'escape') {
+      if (key.name === 'escape' || key.name === 'p') {
         // 📖 Close settings — rebuild results to reflect provider changes
         state.settingsOpen = false
         // 📖 Rebuild results: add models from newly enabled providers, remove disabled
@@ -1680,6 +2719,11 @@ async function main() {
         // 📖 Re-index results
         results.forEach((r, i) => { r.idx = i + 1 })
         state.results = results
+        syncFavoriteFlags(state.results, state.config)
+        applyTierFilter()
+        const visible = state.results.filter(r => !r.hidden)
+        state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+        if (state.cursor >= state.visibleSorted.length) state.cursor = Math.max(0, state.visibleSorted.length - 1)
         adjustScrollOffset(state)
         // 📖 Re-ping all models that were 'noauth' (got 401 without key) but now have a key
         // 📖 This makes the TUI react immediately when a user adds an API key in settings
@@ -1699,12 +2743,28 @@ async function main() {
         return
       }
 
-      if (key.name === 'down' && state.settingsCursor < providerKeys.length - 1) {
+      if (key.name === 'down' && state.settingsCursor < updateRowIdx) {
         state.settingsCursor++
         return
       }
 
       if (key.name === 'return') {
+        if (state.settingsCursor === telemetryRowIdx) {
+          ensureTelemetryConfig(state.config)
+          state.config.telemetry.enabled = state.config.telemetry.enabled !== true
+          state.config.telemetry.consentVersion = TELEMETRY_CONSENT_VERSION
+          saveConfig(state.config)
+          return
+        }
+        if (state.settingsCursor === updateRowIdx) {
+          if (state.settingsUpdateState === 'available' && state.settingsUpdateLatestVersion) {
+            launchUpdateFromSettings(state.settingsUpdateLatestVersion)
+            return
+          }
+          checkUpdatesFromSettings()
+          return
+        }
+
         // 📖 Enter edit mode for the selected provider's key
         const pk = providerKeys[state.settingsCursor]
         state.settingsEditBuffer = state.config.apiKeys?.[pk] ?? ''
@@ -1713,6 +2773,15 @@ async function main() {
       }
 
       if (key.name === 'space') {
+        if (state.settingsCursor === telemetryRowIdx) {
+          ensureTelemetryConfig(state.config)
+          state.config.telemetry.enabled = state.config.telemetry.enabled !== true
+          state.config.telemetry.consentVersion = TELEMETRY_CONSENT_VERSION
+          saveConfig(state.config)
+          return
+        }
+        if (state.settingsCursor === updateRowIdx) return
+
         // 📖 Toggle enabled/disabled for selected provider
         const pk = providerKeys[state.settingsCursor]
         if (!state.config.providers) state.config.providers = {}
@@ -1723,9 +2792,16 @@ async function main() {
       }
 
       if (key.name === 't') {
+        if (state.settingsCursor === telemetryRowIdx || state.settingsCursor === updateRowIdx) return
+
         // 📖 Test the selected provider's key (fires a real ping)
         const pk = providerKeys[state.settingsCursor]
         testProviderKey(pk)
+        return
+      }
+
+      if (key.name === 'u') {
+        checkUpdatesFromSettings()
         return
       }
 
@@ -1742,11 +2818,12 @@ async function main() {
       return
     }
 
-    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, N=context, H=health, V=verdict, U=uptime
+    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, C=context, H=health, V=verdict, U=uptime
     // 📖 T is reserved for tier filter cycling — tier sort moved to Y
+    // 📖 N is now reserved for origin filter cycling
     const sortKeys = {
       'r': 'rank', 'y': 'tier', 'o': 'origin', 'm': 'model',
-      'l': 'ping', 'a': 'avg', 's': 'swe', 'n': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
+      'l': 'ping', 'a': 'avg', 's': 'swe', 'c': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
     }
 
     if (sortKeys[key.name] && !key.ctrl) {
@@ -1758,6 +2835,27 @@ async function main() {
         state.sortColumn = col
         state.sortDirection = 'asc'
       }
+      // 📖 Recompute visible sorted list and reset cursor to top to avoid stale index
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+      state.cursor = 0
+      state.scrollOffset = 0
+      return
+    }
+
+    // 📖 F key: toggle favorite on the currently selected row and persist to config.
+    if (key.name === 'f') {
+      const selected = state.visibleSorted[state.cursor]
+      if (!selected) return
+      toggleFavoriteModel(state.config, selected.providerKey, selected.modelId)
+      syncFavoriteFlags(state.results, state.config)
+      applyTierFilter()
+      const selectedKey = toFavoriteKey(selected.providerKey, selected.modelId)
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+      const newCursor = state.visibleSorted.findIndex(r => toFavoriteKey(r.providerKey, r.modelId) === selectedKey)
+      if (newCursor >= 0) state.cursor = newCursor
+      else if (state.cursor >= state.visibleSorted.length) state.cursor = Math.max(0, state.visibleSorted.length - 1)
       adjustScrollOffset(state)
       return
     }
@@ -1774,7 +2872,29 @@ async function main() {
     if (key.name === 't') {
       tierFilterMode = (tierFilterMode + 1) % TIER_CYCLE.length
       applyTierFilter()
-      adjustScrollOffset(state)
+      // 📖 Recompute visible sorted list and reset cursor to avoid stale index into new filtered set
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+      state.cursor = 0
+      state.scrollOffset = 0
+      return
+    }
+
+    // 📖 Origin filter key: N = cycle through each provider (All → NIM → Groq → ... → All)
+    if (key.name === 'n') {
+      originFilterMode = (originFilterMode + 1) % ORIGIN_CYCLE.length
+      applyTierFilter()
+      // 📖 Recompute visible sorted list and reset cursor to avoid stale index into new filtered set
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+      state.cursor = 0
+      state.scrollOffset = 0
+      return
+    }
+
+    // 📖 Help overlay key: K = toggle help overlay
+    if (key.name === 'k') {
+      state.helpVisible = !state.helpVisible
       return
     }
 
@@ -1801,7 +2921,7 @@ async function main() {
     }
 
     if (key.name === 'down') {
-      if (state.cursor < results.length - 1) {
+      if (state.cursor < state.visibleSorted.length - 1) {
         state.cursor++
         adjustScrollOffset(state)
       }
@@ -1814,9 +2934,9 @@ async function main() {
     }
 
     if (key.name === 'return') { // Enter
-      // 📖 Use the same sorting as the table display
-      const sorted = sortResults(results, state.sortColumn, state.sortDirection)
-      const selected = sorted[state.cursor]
+      // 📖 Use the cached visible+sorted array — guaranteed to match what's on screen
+      const selected = state.visibleSorted[state.cursor]
+      if (!selected) return // 📖 Guard: empty visible list (all filtered out)
       // 📖 Allow selecting ANY model (even timeout/down) - user knows what they're doing
       userSelected = { modelId: selected.modelId, label: selected.label, tier: selected.tier, providerKey: selected.providerKey }
 
@@ -1839,13 +2959,24 @@ async function main() {
       }
       console.log()
 
+      // 📖 Warn if no API key is configured for the selected model's provider
+      if (state.mode !== 'openclaw') {
+        const selectedApiKey = getApiKey(state.config, selected.providerKey)
+        if (!selectedApiKey) {
+          console.log(chalk.yellow(`  Warning: No API key configured for ${selected.providerKey}.`))
+          console.log(chalk.yellow(`  OpenCode may not be able to use ${selected.label}.`))
+          console.log(chalk.dim(`  Set ${ENV_VAR_NAMES[selected.providerKey] || selected.providerKey.toUpperCase() + '_API_KEY'} or configure via settings (P key).`))
+          console.log()
+        }
+      }
+
       // 📖 Dispatch to the correct integration based on active mode
       if (state.mode === 'openclaw') {
         await startOpenClaw(userSelected, apiKey)
       } else if (state.mode === 'opencode-desktop') {
-        await startOpenCodeDesktop(userSelected)
+        await startOpenCodeDesktop(userSelected, state.config)
       } else {
-        await startOpenCode(userSelected)
+        await startOpenCode(userSelected, state.config)
       }
       process.exit(0)
     }
@@ -1862,13 +2993,24 @@ async function main() {
   // 📖 Animation loop: render settings overlay OR main table based on state
   const ticker = setInterval(() => {
     state.frame++
+    // 📖 Cache visible+sorted models each frame so Enter handler always matches the display
+    if (!state.settingsOpen) {
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+    }
     const content = state.settingsOpen
       ? renderSettings()
-      : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows)
+      : state.helpVisible
+        ? renderHelp()
+        : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode)
     process.stdout.write(ALT_HOME + content)
   }, Math.round(1000 / FPS))
 
-  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows))
+  // 📖 Populate visibleSorted before the first frame so Enter works immediately
+  const initialVisible = state.results.filter(r => !r.hidden)
+  state.visibleSorted = sortResultsWithPinnedFavorites(initialVisible, state.sortColumn, state.sortDirection)
+
+  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode))
 
   // ── Continuous ping loop — ping all models every N seconds forever ──────────
 
@@ -1878,7 +3020,7 @@ async function main() {
   const pingModel = async (r) => {
     const providerApiKey = getApiKey(state.config, r.providerKey) ?? null
     const providerUrl = sources[r.providerKey]?.url ?? sources.nvidia.url
-    const { code, ms } = await ping(providerApiKey, r.modelId, providerUrl)
+    const { code, ms } = await ping(providerApiKey, r.modelId, r.providerKey, providerUrl)
 
     // 📖 Store ping result as object with ms and code
     // 📖 ms = actual response time (even for errors like 429)
