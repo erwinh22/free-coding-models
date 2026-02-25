@@ -27,7 +27,8 @@ const ROOT = join(__dirname, '..')
 // 📖 Import modules under test
 import { nvidiaNim, sources, MODELS } from '../sources.js'
 import {
-  getAvg, getVerdict, getUptime, sortResults, filterByTier, findBestModel, parseArgs,
+  getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore,
+  sortResults, filterByTier, findBestModel, parseArgs,
   TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP
 } from '../lib/utils.js'
 
@@ -191,6 +192,220 @@ describe('getUptime', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📖 2b. STABILITY FUNCTIONS (p95, jitter, stability score)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('getP95', () => {
+  it('returns Infinity when no pings', () => {
+    assert.equal(getP95(mockResult({ pings: [] })), Infinity)
+  })
+
+  it('returns Infinity when no successful pings', () => {
+    assert.equal(getP95(mockResult({ pings: [{ ms: 500, code: '500' }] })), Infinity)
+  })
+
+  it('returns the single value when one ping', () => {
+    assert.equal(getP95(mockResult({ pings: [{ ms: 300, code: '200' }] })), 300)
+  })
+
+  it('returns the highest value for small sets', () => {
+    // With 5 pings: ceil(5 * 0.95) - 1 = 4 → last element
+    const r = mockResult({
+      pings: [
+        { ms: 100, code: '200' }, { ms: 200, code: '200' },
+        { ms: 300, code: '200' }, { ms: 400, code: '200' },
+        { ms: 5000, code: '200' },
+      ]
+    })
+    assert.equal(getP95(r), 5000)
+  })
+
+  it('ignores non-200 pings', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 100, code: '200' }, { ms: 200, code: '200' },
+        { ms: 99999, code: '500' }, // should be ignored
+      ]
+    })
+    assert.equal(getP95(r), 200)
+  })
+
+  it('catches tail latency spikes with 20 pings', () => {
+    // With 20 pings: p95 index = ceil(20 * 0.95) - 1 = 18
+    // Need at least 2 high values so index 18 hits the spike
+    const pings = Array.from({ length: 18 }, () => ({ ms: 200, code: '200' }))
+    pings.push({ ms: 5000, code: '200' })
+    pings.push({ ms: 5000, code: '200' })
+    const r = mockResult({ pings })
+    assert.equal(getP95(r), 5000)
+  })
+})
+
+describe('getJitter', () => {
+  it('returns 0 when no pings', () => {
+    assert.equal(getJitter(mockResult({ pings: [] })), 0)
+  })
+
+  it('returns 0 when only one ping', () => {
+    assert.equal(getJitter(mockResult({ pings: [{ ms: 500, code: '200' }] })), 0)
+  })
+
+  it('returns 0 when all pings are identical', () => {
+    const r = mockResult({
+      pings: [{ ms: 300, code: '200' }, { ms: 300, code: '200' }, { ms: 300, code: '200' }]
+    })
+    assert.equal(getJitter(r), 0)
+  })
+
+  it('calculates correct jitter for known values', () => {
+    // pings: 100, 300 → mean = 200, variance = ((100-200)^2 + (300-200)^2)/2 = 10000, σ = 100
+    const r = mockResult({
+      pings: [{ ms: 100, code: '200' }, { ms: 300, code: '200' }]
+    })
+    assert.equal(getJitter(r), 100)
+  })
+
+  it('ignores non-200 pings', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 300, code: '200' }, { ms: 300, code: '200' },
+        { ms: 99999, code: '500' }, // should be ignored
+      ]
+    })
+    assert.equal(getJitter(r), 0)
+  })
+
+  it('returns high jitter for spiky latencies', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 5000, code: '200' },
+      ]
+    })
+    // mean = 1325, large std dev
+    const jitter = getJitter(r)
+    assert.ok(jitter > 1000, `Expected high jitter, got ${jitter}`)
+  })
+})
+
+describe('getStabilityScore', () => {
+  it('returns -1 when no successful pings', () => {
+    assert.equal(getStabilityScore(mockResult({ pings: [] })), -1)
+    assert.equal(getStabilityScore(mockResult({ pings: [{ ms: 0, code: '500' }] })), -1)
+  })
+
+  it('returns high score for consistent fast model', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 200, code: '200' }, { ms: 210, code: '200' },
+        { ms: 190, code: '200' }, { ms: 205, code: '200' },
+        { ms: 195, code: '200' },
+      ]
+    })
+    const score = getStabilityScore(r)
+    assert.ok(score >= 80, `Expected high stability score, got ${score}`)
+  })
+
+  it('returns low score for spiky model', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 8000, code: '200' },
+        { ms: 100, code: '200' }, { ms: 7000, code: '200' },
+      ]
+    })
+    const score = getStabilityScore(r)
+    assert.ok(score < 60, `Expected low stability score for spiky model, got ${score}`)
+  })
+
+  it('penalizes low uptime', () => {
+    const good = mockResult({
+      pings: [
+        { ms: 200, code: '200' }, { ms: 200, code: '200' },
+        { ms: 200, code: '200' }, { ms: 200, code: '200' },
+      ]
+    })
+    const flaky = mockResult({
+      pings: [
+        { ms: 200, code: '200' }, { ms: 0, code: '500' },
+        { ms: 0, code: '500' }, { ms: 0, code: '500' },
+      ]
+    })
+    assert.ok(getStabilityScore(good) > getStabilityScore(flaky))
+  })
+
+  it('Model B (consistent 400ms) scores higher than Model A (avg 250ms, spiky p95)', () => {
+    // The motivating example from the issue
+    const modelA = mockResult({
+      pings: [
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 6000, code: '200' }, // p95 spike!
+      ]
+    })
+    const modelB = mockResult({
+      pings: [
+        { ms: 400, code: '200' }, { ms: 380, code: '200' },
+        { ms: 420, code: '200' }, { ms: 410, code: '200' },
+        { ms: 390, code: '200' }, { ms: 400, code: '200' },
+        { ms: 395, code: '200' }, { ms: 405, code: '200' },
+        { ms: 400, code: '200' }, { ms: 400, code: '200' },
+      ]
+    })
+    assert.ok(
+      getStabilityScore(modelB) > getStabilityScore(modelA),
+      `Model B (consistent) should score higher than Model A (spiky)`
+    )
+  })
+
+  it('score is between 0 and 100 for valid data', () => {
+    const r = mockResult({
+      pings: [{ ms: 500, code: '200' }, { ms: 1000, code: '200' }]
+    })
+    const score = getStabilityScore(r)
+    assert.ok(score >= 0 && score <= 100, `Score should be 0-100, got ${score}`)
+  })
+})
+
+describe('getVerdict stability-aware', () => {
+  it('returns Spiky for normal avg but terrible p95 (≥3 pings)', () => {
+    // 18 pings at 200ms + 2 at 8000ms
+    // avg = (18*200 + 2*8000)/20 = (3600+16000)/20 = 980ms → Normal range
+    // p95 index = ceil(20*0.95)-1 = 18, sorted[18] = 8000 → p95 > 5000 → Spiky
+    const pings = Array.from({ length: 18 }, () => ({ ms: 200, code: '200' }))
+    pings.push({ ms: 8000, code: '200' })
+    pings.push({ ms: 8000, code: '200' })
+    const r = mockResult({ pings })
+    assert.equal(getVerdict(r), 'Spiky')
+  })
+
+  it('still returns Perfect for fast avg when p95 is fine', () => {
+    const r = mockResult({
+      pings: [
+        { ms: 200, code: '200' }, { ms: 210, code: '200' },
+        { ms: 190, code: '200' }, { ms: 205, code: '200' },
+      ]
+    })
+    assert.equal(getVerdict(r), 'Perfect')
+  })
+
+  it('does not flag Spiky with only 1-2 pings (not enough data)', () => {
+    const r = mockResult({
+      pings: [{ ms: 100, code: '200' }, { ms: 5000, code: '200' }]
+    })
+    // avg = 2550 which is > 1000 but < 3000, so verdict is Slow (not Spiky)
+    // The avg pushes it out of the "fast" range entirely
+    const verdict = getVerdict(r)
+    assert.ok(verdict !== 'Spiky', `Should not be Spiky with 2 pings, got ${verdict}`)
+  })
+
+  it('Spiky is in VERDICT_ORDER', () => {
+    assert.ok(VERDICT_ORDER.includes('Spiky'), 'VERDICT_ORDER should include Spiky')
+  })
+})
+
 describe('filterByTier', () => {
   const results = [
     mockResult({ tier: 'S+', label: 'A' }),
@@ -303,6 +518,25 @@ describe('sortResults', () => {
     sortResults(results, 'avg', 'asc')
     assert.equal(results[0].label, original[0].label)
   })
+
+  it('sorts by stability descending (most stable first)', () => {
+    const stable = mockResult({
+      label: 'Stable',
+      pings: [
+        { ms: 200, code: '200' }, { ms: 210, code: '200' },
+        { ms: 190, code: '200' }, { ms: 205, code: '200' },
+      ]
+    })
+    const spiky = mockResult({
+      label: 'Spiky',
+      pings: [
+        { ms: 100, code: '200' }, { ms: 100, code: '200' },
+        { ms: 100, code: '200' }, { ms: 8000, code: '200' },
+      ]
+    })
+    const sorted = sortResults([spiky, stable], 'stability', 'desc')
+    assert.equal(sorted[0].label, 'Stable')
+  })
 })
 
 describe('findBestModel', () => {
@@ -332,6 +566,29 @@ describe('findBestModel', () => {
       mockResult({ label: 'Stable', status: 'up', pings: [{ ms: 300, code: '200' }, { ms: 300, code: '200' }] }),
     ]
     assert.equal(findBestModel(results).label, 'Stable')
+  })
+
+  it('prefers more stable model when avg is equal', () => {
+    // Both have same avg (300ms) but different stability
+    const results = [
+      mockResult({
+        label: 'Spiky',
+        status: 'up',
+        pings: [
+          { ms: 100, code: '200' }, { ms: 100, code: '200' },
+          { ms: 100, code: '200' }, { ms: 900, code: '200' },
+        ]
+      }),
+      mockResult({
+        label: 'Consistent',
+        status: 'up',
+        pings: [
+          { ms: 300, code: '200' }, { ms: 300, code: '200' },
+          { ms: 300, code: '200' }, { ms: 300, code: '200' },
+        ]
+      }),
+    ]
+    assert.equal(findBestModel(results).label, 'Consistent')
   })
 })
 
