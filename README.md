@@ -9,6 +9,21 @@
 <h1 align="center">free-coding-models</h1>
 
 <p align="center">
+  <strong>Contributors</strong><br>
+  <a href="https://github.com/vava-nessa"><img src="https://avatars.githubusercontent.com/u/5466264?v=4&s=60" width="60" height="60" style="border-radius:50%" alt="vava-nessa"></a>
+  <a href="https://github.com/erwinh22"><img src="https://avatars.githubusercontent.com/u/6641858?v=4&s=60" width="60" height="60" style="border-radius:50%" alt="erwinh22"></a>
+  <a href="https://github.com/whit3rabbit"><img src="https://avatars.githubusercontent.com/u/12357518?v=4&s=60" width="60" height="60" style="border-radius:50%" alt="whit3rabbit"></a>
+  <a href="https://github.com/skylaweber"><img src="https://avatars.githubusercontent.com/u/172871734?v=4&s=60" width="60" height="60" style="border-radius:50%" alt="skylaweber"></a>
+  <br>
+  <sub>
+    <a href="https://github.com/vava-nessa">vava-nessa</a> &middot;
+    <a href="https://github.com/erwinh22">erwinh22</a> &middot;
+    <a href="https://github.com/whit3rabbit">whit3rabbit</a> &middot;
+    <a href="https://github.com/skylaweber">skylaweber</a>
+  </sub>
+</p>
+
+<p align="center">
   💬 <a href="https://discord.gg/5MbTnDC3Md">Let's talk about the project on Discord</a>
 </p>
 
