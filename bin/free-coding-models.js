@@ -1689,6 +1689,9 @@ async function spawnOpenCode(args, providerKey, fcmConfig, existingZaiProxy = nu
   const envVarName = ENV_VAR_NAMES[providerKey]
   const resolvedKey = getApiKey(fcmConfig, providerKey)
   const childEnv = { ...process.env }
+  // 📖 Suppress MaxListenersExceededWarning from @modelcontextprotocol/sdk
+  // 📖 when 7+ MCP servers cause drain listener count to exceed default 10
+  childEnv.NODE_NO_WARNINGS = '1'
   const finalArgs = [...args]
   const hasExplicitPortArg = finalArgs.includes('--port')
   if (envVarName && resolvedKey) childEnv[envVarName] = resolvedKey
