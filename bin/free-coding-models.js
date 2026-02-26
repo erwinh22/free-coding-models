@@ -1274,12 +1274,10 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     lines.push(chalk.dim(`  ... ${sorted.length - vp.endIdx} more below ...`))
   }
 
-  // 📖 Profile save inline prompt — shown when Shift+S is pressed, replaces spacer line
-  if (profileSaveMode) {
-    lines.push(chalk.bgRgb(40, 20, 60)(`  📋 Save profile as: ${chalk.cyanBright(profileSaveBuffer + '▏')}  ${chalk.dim('Enter save  •  Esc cancel')}`))
-  } else {
-    lines.push('')
-  }
+   // 📖 Profile save inline prompt — shown when Shift+S is pressed, replaces spacer line
+   if (profileSaveMode) {
+     lines.push(chalk.bgRgb(40, 20, 60)(`  📋 Save profile as: ${chalk.cyanBright(profileSaveBuffer + '▏')}  ${chalk.dim('Enter save  •  Esc cancel')}`))
+   }
   const intervalSec = Math.round(pingInterval / 1000)
 
   // 📖 Footer hints adapt based on active mode

@@ -2,6 +2,12 @@
 
 ---
 
+## 0.1.74
+
+### Changed
+
+- **TUI footer spacing** — removed an empty separator line between the “... more below …” indicator and the navigation hints, freeing up vertical space in the main UI.
+
 ## 0.1.73
 
 ### Fixed
