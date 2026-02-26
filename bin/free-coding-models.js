@@ -1733,6 +1733,16 @@ async function spawnOpenCode(args, providerKey, fcmConfig, existingZaiProxy = nu
   return new Promise((resolve, reject) => {
     child.on('exit', (code) => {
       if (zaiProxy) zaiProxy.close()
+      // 📖 ZAI cleanup: remove the ephemeral proxy provider from opencode.json
+      // 📖 so a stale baseURL doesn't cause "Model zai/… is not valid" on next launch
+      if (providerKey === 'zai') {
+        try {
+          const cfg = loadOpenCodeConfig()
+          if (cfg.provider?.zai) delete cfg.provider.zai
+          if (typeof cfg.model === 'string' && cfg.model.startsWith('zai/')) delete cfg.model
+          saveOpenCodeConfig(cfg)
+        } catch { /* best-effort cleanup */ }
+      }
       resolve(code)
     })
     child.on('error', (err) => {
