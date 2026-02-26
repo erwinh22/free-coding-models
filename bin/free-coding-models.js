@@ -93,7 +93,7 @@ import { join, dirname } from 'path'
 import { createServer } from 'net'
 import { MODELS, sources } from '../sources.js'
 import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
-import { getAvg, getVerdict, getUptime, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP } from '../lib/utils.js'
+import { getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP } from '../lib/utils.js'
 import { loadConfig, saveConfig, getApiKey, isProviderEnabled } from '../lib/config.js'
 
 const require = createRequire(import.meta.url)
@@ -904,6 +904,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const W_AVG = 11
   const W_STATUS = 18
   const W_VERDICT = 14
+  const W_STAB = 6
   const W_UPTIME = 6
 
   // 📖 Sort models using the shared helper
@@ -933,6 +934,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const avgH     = sortColumn === 'avg' ? dir + ' Avg Ping' : 'Avg Ping'
   const healthH  = sortColumn === 'condition' ? dir + ' Health' : 'Health'
   const verdictH = sortColumn === 'verdict' ? dir + ' Verdict' : 'Verdict'
+  const stabH    = sortColumn === 'stability' ? dir + ' Stab' : 'Stab'
   const uptimeH  = sortColumn === 'uptime' ? dir + ' Up%' : 'Up%'
 
   // 📖 Helper to colorize first letter for keyboard shortcuts
@@ -959,10 +961,11 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const avgH_c     = sortColumn === 'avg' ? chalk.bold.cyan(avgH.padEnd(W_AVG)) : colorFirst('Avg Ping', W_AVG)
   const healthH_c  = sortColumn === 'condition' ? chalk.bold.cyan(healthH.padEnd(W_STATUS)) : colorFirst('Health', W_STATUS)
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : colorFirst(verdictH, W_VERDICT)
+  const stabH_c    = sortColumn === 'stability' ? chalk.bold.cyan(stabH.padEnd(W_STAB)) : colorFirst('Stab', W_STAB)
   const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padStart(W_UPTIME)) : colorFirst(uptimeH, W_UPTIME, chalk.green)
 
-  // 📖 Header with proper spacing (column order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Up%)
-  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sweH_c + '  ' + ctxH_c + '  ' + modelH_c + '  ' + originH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + healthH_c + '  ' + verdictH_c + '  ' + uptimeH_c)
+  // 📖 Header with proper spacing (column order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stab, Up%)
+  lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sweH_c + '  ' + ctxH_c + '  ' + modelH_c + '  ' + originH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + healthH_c + '  ' + verdictH_c + '  ' + stabH_c + '  ' + uptimeH_c)
 
   // 📖 Separator line
   lines.push(
@@ -977,6 +980,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     chalk.dim('─'.repeat(W_AVG)) + '  ' +
     chalk.dim('─'.repeat(W_STATUS)) + '  ' +
     chalk.dim('─'.repeat(W_VERDICT)) + '  ' +
+    chalk.dim('─'.repeat(W_STAB)) + '  ' +
     chalk.dim('─'.repeat(W_UPTIME))
   )
 
@@ -1082,38 +1086,67 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     }
     const status = statusColor(statusText.padEnd(W_STATUS))
 
-    // 📖 Verdict column - build plain text with emoji, pad, then colorize
-    const wasUpBefore = r.pings.length > 0 && r.pings.some(p => p.code === '200')
+    // 📖 Verdict column - use getVerdict() for stability-aware verdicts, then render with emoji
+    const verdict = getVerdict(r)
     let verdictText, verdictColor
-    if (r.httpCode === '429') {
-      verdictText = '🔥 Overloaded'
-      verdictColor = (s) => chalk.yellow.bold(s)
-    } else if ((r.status === 'timeout' || r.status === 'down') && wasUpBefore) {
-      verdictText = '⚠️ Unstable'
-      verdictColor = (s) => chalk.magenta(s)
-    } else if (r.status === 'timeout' || r.status === 'down') {
-      verdictText = '👻 Not Active'
-      verdictColor = (s) => chalk.dim(s)
-    } else if (avg === Infinity) {
-      verdictText = '⏳ Pending'
-      verdictColor = (s) => chalk.dim(s)
-    } else if (avg < 400) {
-      verdictText = '🚀 Perfect'
-      verdictColor = (s) => chalk.greenBright(s)
-    } else if (avg < 1000) {
-      verdictText = '✅ Normal'
-      verdictColor = (s) => chalk.cyan(s)
-    } else if (avg < 3000) {
-      verdictText = '🐢 Slow'
-      verdictColor = (s) => chalk.yellow(s)
-    } else if (avg < 5000) {
-      verdictText = '🐌 Very Slow'
-      verdictColor = (s) => chalk.red(s)
-    } else {
-      verdictText = '💀 Unusable'
-      verdictColor = (s) => chalk.red.bold(s)
+    switch (verdict) {
+      case 'Overloaded':
+        verdictText = '🔥 Overloaded'
+        verdictColor = (s) => chalk.yellow.bold(s)
+        break
+      case 'Unstable':
+        verdictText = '⚠️ Unstable'
+        verdictColor = (s) => chalk.magenta(s)
+        break
+      case 'Not Active':
+        verdictText = '👻 Not Active'
+        verdictColor = (s) => chalk.dim(s)
+        break
+      case 'Pending':
+        verdictText = '⏳ Pending'
+        verdictColor = (s) => chalk.dim(s)
+        break
+      case 'Perfect':
+        verdictText = '🚀 Perfect'
+        verdictColor = (s) => chalk.greenBright(s)
+        break
+      case 'Spiky':
+        verdictText = '📈 Spiky'
+        verdictColor = (s) => chalk.rgb(255, 165, 0)(s)
+        break
+      case 'Normal':
+        verdictText = '✅ Normal'
+        verdictColor = (s) => chalk.cyan(s)
+        break
+      case 'Slow':
+        verdictText = '🐢 Slow'
+        verdictColor = (s) => chalk.yellow(s)
+        break
+      case 'Very Slow':
+        verdictText = '🐌 Very Slow'
+        verdictColor = (s) => chalk.red(s)
+        break
+      default:
+        verdictText = '💀 Unusable'
+        verdictColor = (s) => chalk.red.bold(s)
+        break
     }
     const speedCell = verdictColor(verdictText.padEnd(W_VERDICT))
+
+    // 📖 Stability column - composite score (0–100) from p95 + jitter + spikes + uptime
+    const stabScore = getStabilityScore(r)
+    let stabCell
+    if (stabScore < 0) {
+      stabCell = chalk.dim('—'.padStart(W_STAB))
+    } else if (stabScore >= 80) {
+      stabCell = chalk.greenBright(String(stabScore).padStart(W_STAB))
+    } else if (stabScore >= 60) {
+      stabCell = chalk.cyan(String(stabScore).padStart(W_STAB))
+    } else if (stabScore >= 40) {
+      stabCell = chalk.yellow(String(stabScore).padStart(W_STAB))
+    } else {
+      stabCell = chalk.red(String(stabScore).padStart(W_STAB))
+    }
 
     // 📖 Uptime column - percentage of successful pings
     const uptimePercent = getUptime(r)
@@ -1129,8 +1162,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       uptimeCell = chalk.red(uptimeStr.padStart(W_UPTIME))
     }
 
-    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Up%)
-    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + uptimeCell
+    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stab, Up%)
+    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + stabCell + '  ' + uptimeCell
 
     if (isCursor && r.isFavorite) {
       lines.push(chalk.bgRgb(120, 60, 0)(row))
@@ -2693,7 +2726,7 @@ async function main() {
     lines.push(`  ${chalk.bold('Sorting')}`)
     lines.push(`  ${chalk.yellow('R')} Rank  ${chalk.yellow('Y')} Tier  ${chalk.yellow('O')} Origin  ${chalk.yellow('M')} Model`)
     lines.push(`  ${chalk.yellow('L')} Latest ping  ${chalk.yellow('A')} Avg ping  ${chalk.yellow('S')} SWE-bench score`)
-    lines.push(`  ${chalk.yellow('C')} Context window  ${chalk.yellow('H')} Health  ${chalk.yellow('V')} Verdict  ${chalk.yellow('U')} Uptime`)
+    lines.push(`  ${chalk.yellow('C')} Context window  ${chalk.yellow('H')} Health  ${chalk.yellow('V')} Verdict  ${chalk.yellow('B')} Stability  ${chalk.yellow('U')} Uptime`)
     lines.push('')
     lines.push(`  ${chalk.bold('Filters')}`)
     lines.push(`  ${chalk.yellow('T')}  Cycle tier filter  ${chalk.dim('(All → S+ → S → A+ → A → A- → B+ → B → C → All)')}`)
@@ -2994,12 +3027,12 @@ async function main() {
       return
     }
 
-    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, C=context, H=health, V=verdict, U=uptime
+    // 📖 Sorting keys: R=rank, Y=tier, O=origin, M=model, L=latest ping, A=avg ping, S=SWE-bench, C=context, H=health, V=verdict, B=stability, U=uptime
     // 📖 T is reserved for tier filter cycling — tier sort moved to Y
     // 📖 N is now reserved for origin filter cycling
     const sortKeys = {
       'r': 'rank', 'y': 'tier', 'o': 'origin', 'm': 'model',
-      'l': 'ping', 'a': 'avg', 's': 'swe', 'c': 'ctx', 'h': 'condition', 'v': 'verdict', 'u': 'uptime'
+      'l': 'ping', 'a': 'avg', 's': 'swe', 'c': 'ctx', 'h': 'condition', 'v': 'verdict', 'b': 'stability', 'u': 'uptime'
     }
 
     if (sortKeys[key.name] && !key.ctrl) {
