@@ -2124,6 +2124,16 @@ After installation, you can use: opencode --model ${modelRef}`
           },
           models: {}
         }
+      } else if (providerKey === 'iflow') {
+        config.provider.iflow = {
+          npm: '@ai-sdk/openai-compatible',
+          name: 'iFlow',
+          options: {
+            baseURL: 'https://apis.iflow.cn/v1',
+            apiKey: '{env:IFLOW_API_KEY}'
+          },
+          models: {}
+        }
       }
     }
 

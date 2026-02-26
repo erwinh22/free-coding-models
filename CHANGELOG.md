@@ -2,6 +2,14 @@
 
 ---
 
+## 0.1.73
+
+### Fixed
+
+- **iFlow OpenCode integration** — added missing iFlow provider configuration for OpenCode launch. Selecting iFlow models and pressing Enter now correctly configures OpenCode to use iFlow's API.
+
+---
+
 ## 0.1.72
 
 ### Changed
