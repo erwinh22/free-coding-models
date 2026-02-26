@@ -717,7 +717,7 @@ const ALT_HOME   = '\x1b[H'
 // 📖 This allows easy addition of new model sources beyond NVIDIA NIM
 
 const PING_TIMEOUT  = 15_000   // 📖 15s per attempt before abort - slow models get more time
-const PING_INTERVAL = 2_000    // 📖 Ping all models every 2 seconds in continuous mode
+const PING_INTERVAL = 3_000    // 📖 Ping all models every 3 seconds in continuous mode
 
 const FPS          = 12
 const COL_MODEL    = 22
@@ -991,10 +991,14 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Now colorize after padding is calculated on plain text
   const rankH_c    = colorFirst(rankH, W_RANK)
   const tierH_c    = colorFirst('Tier', W_TIER)
-  const originLabel = 'Origin(N)'
+  const originLabel = 'Origin'
   const originH_c  = sortColumn === 'origin'
     ? chalk.bold.cyan(originLabel.padEnd(W_SOURCE))
-    : (originFilterMode > 0 ? chalk.bold.rgb(100, 200, 255)(originLabel.padEnd(W_SOURCE)) : colorFirst(originLabel, W_SOURCE))
+    : (originFilterMode > 0 ? chalk.bold.rgb(100, 200, 255)(originLabel.padEnd(W_SOURCE)) : (() => {
+      // 📖 Custom colorization for Origin: highlight 'N' (the filter key) at the end
+      const padding = ' '.repeat(Math.max(0, W_SOURCE - originLabel.length))
+      return chalk.dim('Origi') + chalk.yellow('N') + chalk.dim(padding)
+    })())
   const modelH_c   = colorFirst(modelH, W_MODEL)
   const sweH_c     = sortColumn === 'swe' ? chalk.bold.cyan(sweH.padEnd(W_SWE)) : colorFirst(sweH, W_SWE)
   const ctxH_c     = sortColumn === 'ctx' ? chalk.bold.cyan(ctxH.padEnd(W_CTX)) : colorFirst(ctxH, W_CTX)
@@ -1006,7 +1010,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const stabH_c    = sortColumn === 'stability' ? chalk.bold.cyan(stabH.padEnd(W_STAB)) : (() => {
     const plain = 'Stability'
     const padding = ' '.repeat(Math.max(0, W_STAB - plain.length))
-    return chalk.dim('Sta') + chalk.white.bold('b') + chalk.dim('ility' + padding)
+    return chalk.dim('Sta') + chalk.white.bold('B') + chalk.dim('ility' + padding)
   })()
   const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padEnd(W_UPTIME)) : colorFirst(uptimeH, W_UPTIME, chalk.green)
 
@@ -1151,14 +1155,35 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     // 📖 Verdict column - use getVerdict() for stability-aware verdicts, then render with emoji
     const verdict = getVerdict(r)
     let verdictText, verdictColor
+    // 📖 Verdict colors follow the same green→red gradient as TIER_COLOR / SWE%
     switch (verdict) {
+      case 'Perfect':
+        verdictText = 'Perfect 🚀'
+        verdictColor = (s) => chalk.bold.rgb(0, 255, 180)(s)    // bright cyan-green — stands out from Normal
+        break
+      case 'Normal':
+        verdictText = 'Normal ✅'
+        verdictColor = (s) => chalk.bold.rgb(140, 200, 0)(s)    // lime-yellow — clearly warmer than Perfect
+        break
+      case 'Spiky':
+        verdictText = 'Spiky 📈'
+        verdictColor = (s) => chalk.bold.rgb(170, 210, 0)(s)    // A+ yellow-green
+        break
+      case 'Slow':
+        verdictText = 'Slow 🐢'
+        verdictColor = (s) => chalk.bold.rgb(255, 130, 0)(s)    // A- amber
+        break
+      case 'Very Slow':
+        verdictText = 'Very Slow 🐌'
+        verdictColor = (s) => chalk.bold.rgb(255, 70, 0)(s)     // B+ orange-red
+        break
       case 'Overloaded':
         verdictText = 'Overloaded 🔥'
-        verdictColor = (s) => chalk.yellow.bold(s)
+        verdictColor = (s) => chalk.bold.rgb(210, 20, 0)(s)     // B red
         break
       case 'Unstable':
         verdictText = 'Unstable ⚠️'
-        verdictColor = (s) => chalk.magenta(s)
+        verdictColor = (s) => chalk.bold.rgb(175, 10, 0)(s)     // between B and C
         break
       case 'Not Active':
         verdictText = 'Not Active 👻'
@@ -1168,29 +1193,9 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
         verdictText = 'Pending ⏳'
         verdictColor = (s) => chalk.dim(s)
         break
-      case 'Perfect':
-        verdictText = 'Perfect 🚀'
-        verdictColor = (s) => chalk.greenBright(s)
-        break
-      case 'Spiky':
-        verdictText = 'Spiky 📈'
-        verdictColor = (s) => chalk.rgb(255, 165, 0)(s)
-        break
-      case 'Normal':
-        verdictText = 'Normal ✅'
-        verdictColor = (s) => chalk.cyan(s)
-        break
-      case 'Slow':
-        verdictText = 'Slow 🐢'
-        verdictColor = (s) => chalk.yellow(s)
-        break
-      case 'Very Slow':
-        verdictText = 'Very Slow 🐌'
-        verdictColor = (s) => chalk.red(s)
-        break
       default:
         verdictText = 'Unusable 💀'
-        verdictColor = (s) => chalk.red.bold(s)
+        verdictColor = (s) => chalk.bold.rgb(140, 0, 0)(s)      // C dark red
         break
     }
     // 📖 Use padEndDisplay to account for emoji display width (2 cols each) so all rows align
@@ -1227,15 +1232,17 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       uptimeCell = chalk.red(uptimeStr.padEnd(W_UPTIME))
     }
 
-    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stability, Up%)
-    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + stabCell + '  ' + uptimeCell
+    // 📖 When cursor is on this row, render Model and Origin in bright white for readability
+    const nameCell = isCursor ? chalk.white.bold(favoritePrefix + r.label.slice(0, nameWidth).padEnd(nameWidth)) : name
+    const sourceCell = isCursor ? chalk.white.bold(providerName.padEnd(W_SOURCE)) : source
 
-    if (isCursor && r.isFavorite) {
-      lines.push(chalk.bgRgb(120, 60, 0)(row))
-    } else if (isCursor) {
-      lines.push(chalk.bgRgb(139, 0, 139)(row))
+    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stability, Up%)
+    const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + nameCell + '  ' + sourceCell + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + stabCell + '  ' + uptimeCell
+
+    if (isCursor) {
+      lines.push(chalk.bgRgb(50, 0, 60)(row))
     } else if (r.isFavorite) {
-      lines.push(chalk.bgRgb(90, 45, 0)(row))
+      lines.push(chalk.bgRgb(35, 20, 0)(row))
     } else {
       lines.push(row)
     }
@@ -1254,19 +1261,24 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     : mode === 'opencode-desktop'
       ? chalk.rgb(0, 200, 255)('Enter→OpenDesktop')
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
-  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  F Favorite  •  R/Y/O/M/L/A/S/C/H/V/B/U Sort  •  T Tier  •  N Origin  •  W↓/X↑ (${intervalSec}s)  •  Z Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.bgGreenBright.black.bold(' K Help ') + chalk.dim(`  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  F Favorite  •  R/Y/O/M/L/A/S/C/H/V/B/U Sort  •  T Tier  •  N Origin  •  W↓/X↑ (${intervalSec}s)  •  `) + chalk.rgb(255, 100, 50).bold('Z Mode') + chalk.dim(`  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.rgb(0, 255, 80).bold('K Help'))
   lines.push('')
   lines.push(
     chalk.rgb(255, 150, 200)('  Made with 💖 & ☕ by \x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\') +
     chalk.dim('  •  ') +
     '⭐ ' +
-    '\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Star on GitHub\x1b]8;;\x1b\\' +
+    chalk.yellow('\x1b]8;;https://github.com/vava-nessa/free-coding-models\x1b\\Star on GitHub\x1b]8;;\x1b\\') +
     chalk.dim('  •  ') +
     '🤝 ' +
-    '\x1b]8;;https://github.com/vava-nessa/free-coding-models/graphs/contributors\x1b\\Contributors\x1b]8;;\x1b\\'
+    chalk.rgb(255, 165, 0)('\x1b]8;;https://github.com/vava-nessa/free-coding-models/graphs/contributors\x1b\\Contributors\x1b]8;;\x1b\\') +
+    chalk.dim('  •  ') +
+    '💬 ' +
+    chalk.rgb(200, 150, 255)('\x1b]8;;https://discord.gg/5MbTnDC3Md\x1b\\Discord\x1b]8;;\x1b\\') +
+    chalk.dim(' → ') +
+    chalk.rgb(200, 150, 255)('https://discord.gg/5MbTnDC3Md') +
+    chalk.dim('  •  ') +
+    chalk.dim('Ctrl+C Exit')
   )
-  // 📖 Discord invite + BETA warning — always visible at the bottom of the TUI
-  lines.push('  💬 ' + chalk.cyanBright('\x1b]8;;https://discord.gg/5MbTnDC3Md\x1b\\Join our Discord\x1b]8;;\x1b\\') + chalk.dim(' → ') + chalk.cyanBright('https://discord.gg/5MbTnDC3Md') + chalk.dim('  •  ') + chalk.yellow('⚠ BETA TUI') + chalk.dim(' — might crash or have problems'))
   lines.push('')
   // 📖 Append \x1b[K (erase to EOL) to each line so leftover chars from previous
   // 📖 frames are cleared. Then pad with blank cleared lines to fill the terminal,
@@ -2783,15 +2795,49 @@ async function main() {
     lines.push('')
     lines.push(`  ${chalk.bold('❓ Keyboard Shortcuts')}  ${chalk.dim('— ↑↓ / PgUp / PgDn / Home / End scroll • K or Esc close')}`)
     lines.push('')
+    lines.push(`  ${chalk.bold('Columns')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Rank')}        SWE-bench rank (1 = best coding score)  ${chalk.dim('Sort:')} ${chalk.yellow('R')}`)
+    lines.push(`              ${chalk.dim('Quick glance at which model is objectively the best coder right now.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Tier')}        S+ / S / A+ / A / A- / B+ / B / C based on SWE-bench score  ${chalk.dim('Sort:')} ${chalk.yellow('Y')}`)
+    lines.push(`              ${chalk.dim('Skip the noise — S/S+ models solve real GitHub issues, C models are for light tasks.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('SWE%')}        SWE-bench score — coding ability benchmark (color-coded)  ${chalk.dim('Sort:')} ${chalk.yellow('S')}`)
+    lines.push(`              ${chalk.dim('The raw number behind the tier. Higher = better at writing, fixing, and refactoring code.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('CTX')}         Context window size (128k, 200k, 256k, 1m, etc.)  ${chalk.dim('Sort:')} ${chalk.yellow('C')}`)
+    lines.push(`              ${chalk.dim('Bigger context = the model can read more of your codebase at once without forgetting.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Model')}       Model name (⭐ = favorited, pinned at top)  ${chalk.dim('Sort:')} ${chalk.yellow('M')}  ${chalk.dim('Favorite:')} ${chalk.yellow('F')}`)
+    lines.push(`              ${chalk.dim('Star the ones you like — they stay pinned at the top across restarts.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Origin')}      Provider source (NIM, Groq, Cerebras, etc.)  ${chalk.dim('Sort:')} ${chalk.yellow('O')}  ${chalk.dim('Filter:')} ${chalk.yellow('N')}`)
+    lines.push(`              ${chalk.dim('Same model on different providers can have very different speed and uptime.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Latest')}      Most recent ping response time (ms)  ${chalk.dim('Sort:')} ${chalk.yellow('L')}`)
+    lines.push(`              ${chalk.dim('Shows how fast the server is responding right now — useful to catch live slowdowns.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Avg Ping')}    Average response time across all successful pings (ms)  ${chalk.dim('Sort:')} ${chalk.yellow('A')}`)
+    lines.push(`              ${chalk.dim('The long-term truth. Ignore lucky one-off pings, this tells you real everyday speed.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Health')}      Live status: ✅ UP / 🔥 429 / ⏳ TIMEOUT / ❌ ERR / 🔑 NO KEY  ${chalk.dim('Sort:')} ${chalk.yellow('H')}`)
+    lines.push(`              ${chalk.dim('Tells you instantly if a model is reachable or down — no guesswork needed.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Verdict')}     Overall assessment: Perfect / Normal / Spiky / Slow / Overloaded  ${chalk.dim('Sort:')} ${chalk.yellow('V')}`)
+    lines.push(`              ${chalk.dim('One-word summary so you don\'t have to cross-check speed, health, and stability yourself.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Stability')}   Composite 0–100 score: p95 + jitter + spike rate + uptime  ${chalk.dim('Sort:')} ${chalk.yellow('B')}`)
+    lines.push(`              ${chalk.dim('A fast model that randomly freezes is worse than a steady one. This catches that.')}`)
+    lines.push('')
+    lines.push(`  ${chalk.cyan('Up%')}         Uptime — ratio of successful pings to total pings  ${chalk.dim('Sort:')} ${chalk.yellow('U')}`)
+    lines.push(`              ${chalk.dim('If a model only works half the time, you\'ll waste time retrying. Higher = more reliable.')}`)
+
+    lines.push('')
     lines.push(`  ${chalk.bold('Main TUI')}`)
     lines.push(`  ${chalk.bold('Navigation')}`)
     lines.push(`  ${chalk.yellow('↑↓')}           Navigate rows`)
     lines.push(`  ${chalk.yellow('Enter')}        Select model and launch`)
-    lines.push('')
-    lines.push(`  ${chalk.bold('Sorting')}`)
-    lines.push(`  ${chalk.yellow('R')} Rank  ${chalk.yellow('Y')} Tier  ${chalk.yellow('O')} Origin  ${chalk.yellow('M')} Model`)
-    lines.push(`  ${chalk.yellow('L')} Latest ping  ${chalk.yellow('A')} Avg ping  ${chalk.yellow('S')} SWE-bench score`)
-    lines.push(`  ${chalk.yellow('C')} Context window  ${chalk.yellow('H')} Health  ${chalk.yellow('V')} Verdict  ${chalk.yellow('B')} Stability  ${chalk.yellow('U')} Uptime`)
     lines.push('')
     lines.push(`  ${chalk.bold('Filters')}`)
     lines.push(`  ${chalk.yellow('T')}  Cycle tier filter  ${chalk.dim('(All → S+ → S → A+ → A → A- → B+ → B → C → All)')}`)
