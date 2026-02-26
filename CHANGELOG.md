@@ -2,6 +2,14 @@
 
 ---
 
+## 0.1.70
+
+### Changed
+
+- **Default ping interval 60s -> 3s** -- Changed default re-ping frequency from every 60 seconds back to every 3 seconds for faster model monitoring feedback. Still adjustable with W/X keys.
+
+---
+
 ## 0.1.69
 
 ### Added

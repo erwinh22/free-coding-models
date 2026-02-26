@@ -720,7 +720,7 @@ const ALT_HOME   = '\x1b[H'
 // 📖 This allows easy addition of new model sources beyond NVIDIA NIM
 
 const PING_TIMEOUT  = 15_000   // 📖 15s per attempt before abort - slow models get more time
-const PING_INTERVAL = 60_000   // 📖 60s between pings — avoids provider rate-limit bans
+const PING_INTERVAL = 3_000    // 📖 3s between pings — faster feedback for model selection
 
 const FPS          = 12
 const COL_MODEL    = 22

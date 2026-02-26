@@ -196,7 +196,7 @@ Use `↑↓` arrows to select, `Enter` to confirm. Then the TUI launches with yo
 
 **How it works:**
  1. **Ping phase** — All enabled models are pinged in parallel (up to 150 across 19 providers)
-2. **Continuous monitoring** — Models are re-pinged every 60 seconds forever
+ 2. **Continuous monitoring** — Models are re-pinged every 3 seconds forever
 3. **Real-time updates** — Watch "Latest", "Avg", and "Up%" columns update live
 4. **Select anytime** — Use ↑↓ arrows to navigate, press Enter on a model to act
 5. **Smart detection** — Automatically detects if NVIDIA NIM is configured in OpenCode or OpenClaw
@@ -722,7 +722,7 @@ This script:
 │  1. Enter alternate screen buffer (like vim/htop/less)           │
 │  2. Ping ALL models in parallel                                  │
 │  3. Display real-time table with Latest/Avg/Stability/Up%        │
-│  4. Re-ping ALL models every 60 seconds (forever)               │
+│  4. Re-ping ALL models every 3 seconds (forever)               │
 │  5. Update rolling averages + stability scores per model        │
 │  6. User can navigate with ↑↓ and select with Enter            │
 │  7. On Enter (OpenCode): set model, launch OpenCode             │
@@ -807,7 +807,7 @@ This script:
 
 **Configuration:**
 - **Ping timeout**: 15 seconds per attempt (slow models get more time)
-- **Ping interval**: 60 seconds between complete re-pings of all models (adjustable with W/X keys)
+- **Ping interval**: 3 seconds between complete re-pings of all models (adjustable with W/X keys)
 - **Monitor mode**: Interface stays open forever, press Ctrl+C to exit
 
 **Flags:**
