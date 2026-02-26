@@ -78,6 +78,7 @@
 - **🔀 Startup mode menu** — Choose between OpenCode and OpenClaw before the TUI launches
 - **💻 OpenCode integration** — Auto-detects NIM setup, sets model as default, launches OpenCode
 - **🦞 OpenClaw integration** — Sets selected model as default provider in `~/.openclaw/openclaw.json`
+- **📝 Feature Request (J key)** — Send anonymous feedback directly to the project team via a full-screen overlay with multi-line input (includes anonymous OS/terminal metadata in message footer only)
 - **🎨 Clean output** — Zero scrollback pollution, interface stays open until Ctrl+C
 - **📶 Status indicators** — UP ✅ · No Key 🔑 · Timeout ⏳ · Overloaded 🔥 · Not Found 🚫
 - **🔍 Keyless latency** — Models are pinged even without an API key — a `🔑 NO KEY` status confirms the server is reachable with real latency shown, so you can compare providers before committing to a key

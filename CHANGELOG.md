@@ -2,6 +2,20 @@
 
 ---
 
+## 0.1.76
+
+### Added
+
+- **Feature Request system (J key)** — added anonymous feedback overlay that sends feature requests directly to the project team via Discord webhook. Press **J** to open a multi-line input box, type your request, and press Enter to send. Includes automatic collection of anonymous metadata (OS, terminal, Node version, architecture, timezone) sent only in the Discord message footer (not visible in UI). Shows success confirmation with 3-second auto-close.
+- **Full-screen overlay** — Feature Request overlay now hides the main TUI completely (like Settings and Help), with a bordered multi-line input box supporting up to 500 characters with real-time character counter.
+- **Help documentation** — added J key entry in help overlay (K) and navigation hints.
+
+### Changed
+
+- **Footer hints** — added `J Request feature` to line 2 of navigation hints for discoverability.
+
+---
+
 ## 0.1.75
 
 ### Fixed

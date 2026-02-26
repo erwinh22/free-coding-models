@@ -123,6 +123,54 @@ const TELEMETRY_CONSENT_ASCII = [
 const POSTHOG_PROJECT_KEY_DEFAULT = 'phc_5P1n8HaLof6nHM0tKJYt4bV5pj2XPb272fLVigwf1YQ'
 const POSTHOG_HOST_DEFAULT = 'https://eu.i.posthog.com'
 
+// 📖 Discord feature request webhook configuration (anonymous feedback system)
+const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1476709155992764427/hmnHNtpducvi5LClhv8DynENjUmmg9q8HI1Bx1lNix56UHqrqZf55rW95LGvNJ2W4j7D'
+const DISCORD_BOT_NAME = 'TUI - Feature Requests'
+const DISCORD_EMBED_COLOR = 0x39FF14 // Vert fluo (RGB: 57, 255, 20)
+
+// 📖 sendFeatureRequest: Send anonymous feature request to Discord via webhook
+// 📖 Called when user presses J key, types message, and presses Enter
+// 📖 Returns success/error status for UI feedback
+async function sendFeatureRequest(message) {
+  try {
+    // 📖 Collect anonymous telemetry for context (no personal data)
+    const system = getTelemetrySystem()
+    const terminal = getTelemetryTerminal()
+    const nodeVersion = process.version
+    const arch = process.arch
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'
+    
+    // 📖 Build Discord embed with rich metadata in footer (compact format)
+    const embed = {
+      description: message,
+      color: DISCORD_EMBED_COLOR,
+      timestamp: new Date().toISOString(),
+      footer: { 
+        text: `v${LOCAL_VERSION} • ${system} • ${terminal} • ${nodeVersion} • ${arch} • ${timezone}`
+      }
+    }
+
+    const response = await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: DISCORD_BOT_NAME,
+        embeds: [embed]
+      }),
+      signal: AbortSignal.timeout(10000) // 📖 10s timeout for webhook
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    return { success: true, error: null }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return { success: false, error: message }
+  }
+}
+
 // 📖 parseTelemetryEnv: Convert env var strings into booleans.
 // 📖 Returns true/false when value is recognized, otherwise null.
 function parseTelemetryEnv(value) {
@@ -1290,8 +1338,8 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       : chalk.rgb(0, 200, 255)('Enter→OpenCode')
   // 📖 Line 1: core navigation + sorting shortcuts
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  `) + chalk.yellow('F') + chalk.dim(` Favorite  •  R/Y/O/M/L/A/S/C/H/V/B/U Sort  •  `) + chalk.yellow('T') + chalk.dim(` Tier  •  `) + chalk.yellow('N') + chalk.dim(` Origin  •  W↓/X↑ (${intervalSec}s)  •  `) + chalk.rgb(255, 100, 50).bold('Z') + chalk.dim(` Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.rgb(0, 255, 80).bold('K') + chalk.dim(` Help`))
-  // 📖 Line 2: profiles, recommend, and extended hints — gives visibility to less-obvious features
-  lines.push(chalk.dim(`  `) + chalk.rgb(200, 150, 255).bold('⇧P') + chalk.dim(` Cycle profile  •  `) + chalk.rgb(200, 150, 255).bold('⇧S') + chalk.dim(` Save profile  •  `) + chalk.rgb(0, 200, 180).bold('Q') + chalk.dim(` Smart Recommend  •  `) + chalk.yellow('E') + chalk.dim(`/`) + chalk.yellow('D') + chalk.dim(` Tier ↑↓  •  `) + chalk.yellow('Esc') + chalk.dim(` Close overlay  •  Ctrl+C Exit`))
+  // 📖 Line 2: profiles, recommend, feature request, and extended hints — gives visibility to less-obvious features
+  lines.push(chalk.dim(`  `) + chalk.rgb(200, 150, 255).bold('⇧P') + chalk.dim(` Cycle profile  •  `) + chalk.rgb(200, 150, 255).bold('⇧S') + chalk.dim(` Save profile  •  `) + chalk.rgb(0, 200, 180).bold('Q') + chalk.dim(` Smart Recommend  •  `) + chalk.rgb(57, 255, 20).bold('J') + chalk.dim(` Request feature  •  `) + chalk.yellow('E') + chalk.dim(`/`) + chalk.yellow('D') + chalk.dim(` Tier ↑↓  •  `) + chalk.yellow('Esc') + chalk.dim(` Close overlay  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(
     chalk.rgb(255, 150, 200)('  Made with 💖 & ☕ by \x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\') +
@@ -2817,6 +2865,11 @@ async function main() {
     activeProfile: getActiveProfileName(config), // 📖 Currently loaded profile name (or null)
     profileSaveMode: false,       // 📖 Whether the inline "Save profile" name input is active
     profileSaveBuffer: '',        // 📖 Typed characters for the profile name being saved
+    // 📖 Feature Request state (! key opens it)
+    featureRequestOpen: false,    // 📖 Whether the feature request overlay is active
+    featureRequestBuffer: '',     // 📖 Typed characters for the feature request message
+    featureRequestStatus: 'idle', // 📖 'idle'|'sending'|'success'|'error' — webhook send status
+    featureRequestError: null,    // 📖 Last webhook error message
   }
 
   // 📖 Re-clamp viewport on terminal resize
@@ -3093,6 +3146,7 @@ async function main() {
     lines.push(`  ${chalk.yellow('Z')}  Cycle launch mode  ${chalk.dim('(OpenCode CLI → OpenCode Desktop → OpenClaw)')}`)
     lines.push(`  ${chalk.yellow('F')}  Toggle favorite on selected row  ${chalk.dim('(⭐ pinned at top, persisted)')}`)
     lines.push(`  ${chalk.yellow('Q')}  Smart Recommend  ${chalk.dim('(🎯 find the best model for your task — questionnaire + live analysis)')}`)
+    lines.push(`  ${chalk.rgb(57, 255, 20).bold('J')}  Request Feature  ${chalk.dim('(📝 send anonymous feedback to the project team)')}`)
     lines.push(`  ${chalk.yellow('P')}  Open settings  ${chalk.dim('(manage API keys, provider toggles, analytics, manual update)')}`)
     lines.push(`  ${chalk.yellow('Shift+P')}  Cycle config profile  ${chalk.dim('(switch between saved profiles live)')}`)
     lines.push(`  ${chalk.yellow('Shift+S')}  Save current config as a named profile  ${chalk.dim('(inline prompt — type name + Enter)')}`)
@@ -3331,6 +3385,112 @@ async function main() {
     }, PING_RATE)
   }
 
+  // ─── Feature Request overlay renderer ─────────────────────────────────────
+  // 📖 renderFeatureRequest: Draw the overlay for anonymous Discord feedback.
+  // 📖 Shows an input field where users can type feature requests, then sends to Discord webhook.
+  function renderFeatureRequest() {
+    const EL = '\x1b[K'
+    const lines = []
+
+    // 📖 Calculate available space for multi-line input
+    const maxInputWidth = OVERLAY_PANEL_WIDTH - 8 // 8 = padding (4 spaces each side)
+    const maxInputLines = 10 // Show up to 10 lines of input
+    
+    // 📖 Split buffer into lines for display (with wrapping)
+    const wrapText = (text, width) => {
+      const words = text.split(' ')
+      const lines = []
+      let currentLine = ''
+      
+      for (const word of words) {
+        const testLine = currentLine ? currentLine + ' ' + word : word
+        if (testLine.length <= width) {
+          currentLine = testLine
+        } else {
+          if (currentLine) lines.push(currentLine)
+          currentLine = word
+        }
+      }
+      if (currentLine) lines.push(currentLine)
+      return lines
+    }
+
+    const inputLines = wrapText(state.featureRequestBuffer, maxInputWidth)
+    const displayLines = inputLines.slice(0, maxInputLines)
+    
+    // 📖 Header
+    lines.push('')
+    lines.push(`  ${chalk.bold.rgb(57, 255, 20)('📝 Feature Request')}  ${chalk.dim('— send anonymous feedback to the project team')}`)
+    lines.push('')
+    
+    // 📖 Status messages (if any)
+    if (state.featureRequestStatus === 'sending') {
+      lines.push(`  ${chalk.yellow('⏳ Sending...')}`)
+      lines.push('')
+    } else if (state.featureRequestStatus === 'success') {
+      lines.push(`  ${chalk.greenBright.bold('✅ Successfully sent!')} ${chalk.dim('Closing overlay in 3 seconds...')}`)
+      lines.push('')
+      lines.push(`  ${chalk.dim('Thank you for your feedback! Your feature request has been sent to the project team.')}`)
+      lines.push('')
+    } else if (state.featureRequestStatus === 'error') {
+      lines.push(`  ${chalk.red('❌ Error:')} ${chalk.yellow(state.featureRequestError || 'Failed to send')}`)
+      lines.push(`  ${chalk.dim('Press Backspace to edit, or Esc to close')}`)
+      lines.push('')
+    } else {
+      lines.push(`  ${chalk.dim('Type your feature request below. Press Enter to send, Esc to cancel.')}`)
+      lines.push(`  ${chalk.dim('Your message will be sent anonymously to the project team.')}`)
+      lines.push('')
+    }
+
+    // 📖 Input box with border
+    lines.push(chalk.dim(`  ┌─ ${chalk.cyan('Message')} ${chalk.dim(`(${state.featureRequestBuffer.length}/500 chars)`)} ─${'─'.repeat(maxInputWidth - 22)}┐`))
+    
+    // 📖 Display input lines (or placeholder if empty)
+    if (displayLines.length === 0 && state.featureRequestStatus === 'idle') {
+      lines.push(chalk.dim(`  │${' '.repeat(maxInputWidth)}│`))
+      lines.push(chalk.dim(`  │  ${chalk.white.italic('Type your message here...')}${' '.repeat(Math.max(0, maxInputWidth - 28))}│`))
+    } else {
+      for (const line of displayLines) {
+        const padded = line.padEnd(maxInputWidth)
+        lines.push(`  │ ${chalk.white(padded)} │`)
+      }
+    }
+    
+    // 📖 Fill remaining space if needed
+    const linesToFill = Math.max(0, maxInputLines - Math.max(displayLines.length, 1))
+    for (let i = 0; i < linesToFill; i++) {
+      lines.push(chalk.dim(`  │${' '.repeat(maxInputWidth)}│`))
+    }
+    
+    // 📖 Cursor indicator (only when not sending/success)
+    if (state.featureRequestStatus === 'idle' || state.featureRequestStatus === 'error') {
+      const cursorLine = inputLines.length > 0 ? inputLines.length - 1 : 0
+      const lastDisplayLine = displayLines.length - 1
+      // Add cursor indicator to the last line
+      if (lines.length > 0 && displayLines.length > 0) {
+        const lastLineIdx = lines.findIndex(l => l.includes('│ ') && !l.includes('Message'))
+        if (lastLineIdx >= 0 && lastLineIdx < lines.length) {
+          // Add cursor blink
+          const lastLine = lines[lastLineIdx]
+          if (lastLine.includes('│')) {
+            lines[lastLineIdx] = lastLine.replace(/\s+│$/, chalk.rgb(57, 255, 20).bold('▏') + ' │')
+          }
+        }
+      }
+    }
+    
+    lines.push(chalk.dim(`  └${'─'.repeat(maxInputWidth + 2)}┘`))
+    
+    lines.push('')
+    lines.push(chalk.dim('  Enter Send  •  Esc Cancel  •  Backspace Delete'))
+
+    // 📖 Apply overlay tint and return
+    const FEATURE_REQUEST_OVERLAY_BG = chalk.bgRgb(26, 26, 46) // Dark blue-ish background (RGB: 26, 26, 46)
+    const tintedLines = tintOverlayLines(lines, FEATURE_REQUEST_OVERLAY_BG)
+    const cleared = tintedLines.map(l => l + EL)
+    return cleared.join('\n')
+  }
+
   // 📖 stopRecommendAnalysis: cleanup timers if user cancels during analysis
   function stopRecommendAnalysis() {
     if (state.recommendAnalysisTimer) { clearInterval(state.recommendAnalysisTimer); state.recommendAnalysisTimer = null }
@@ -3443,6 +3603,73 @@ async function main() {
       // 📖 Append printable characters (str is the raw character typed)
       if (str && str.length === 1 && !key.ctrl && !key.meta) {
         state.profileSaveBuffer += str
+      }
+      return
+    }
+
+    // 📖 Feature Request overlay: intercept ALL keys while overlay is active.
+    // 📖 Enter → send to Discord, Esc → cancel, Backspace → delete char, printable → append to buffer.
+    if (state.featureRequestOpen) {
+      if (key.ctrl && key.name === 'c') { exit(0); return }
+
+      if (key.name === 'escape') {
+        // 📖 Cancel feature request — close overlay
+        state.featureRequestOpen = false
+        state.featureRequestBuffer = ''
+        state.featureRequestStatus = 'idle'
+        state.featureRequestError = null
+        return
+      }
+
+      if (key.name === 'return') {
+        // 📖 Send feature request to Discord webhook
+        const message = state.featureRequestBuffer.trim()
+        if (message.length > 0 && state.featureRequestStatus !== 'sending') {
+          state.featureRequestStatus = 'sending'
+          const result = await sendFeatureRequest(message)
+          if (result.success) {
+            // 📖 Success — show confirmation briefly, then close overlay after 3 seconds
+            state.featureRequestStatus = 'success'
+            setTimeout(() => {
+              state.featureRequestOpen = false
+              state.featureRequestBuffer = ''
+              state.featureRequestStatus = 'idle'
+              state.featureRequestError = null
+            }, 3000)
+          } else {
+            // 📖 Error — show error message, keep overlay open
+            state.featureRequestStatus = 'error'
+            state.featureRequestError = result.error || 'Unknown error'
+          }
+        }
+        return
+      }
+
+      if (key.name === 'backspace') {
+        // 📖 Don't allow editing while sending or after success
+        if (state.featureRequestStatus === 'sending' || state.featureRequestStatus === 'success') return
+        state.featureRequestBuffer = state.featureRequestBuffer.slice(0, -1)
+        // 📖 Clear error status when user starts editing again
+        if (state.featureRequestStatus === 'error') {
+          state.featureRequestStatus = 'idle'
+          state.featureRequestError = null
+        }
+        return
+      }
+
+      // 📖 Append printable characters (str is the raw character typed)
+      // 📖 Limit to 500 characters (Discord embed description limit)
+      if (str && str.length === 1 && !key.ctrl && !key.meta) {
+        // 📖 Don't allow editing while sending or after success
+        if (state.featureRequestStatus === 'sending' || state.featureRequestStatus === 'success') return
+        if (state.featureRequestBuffer.length < 500) {
+          state.featureRequestBuffer += str
+          // 📖 Clear error status when user starts editing again
+          if (state.featureRequestStatus === 'error') {
+            state.featureRequestStatus = 'idle'
+            state.featureRequestError = null
+          }
+        }
       }
       return
     }
@@ -3919,6 +4146,15 @@ async function main() {
       return
     }
 
+    // 📖 J key: open Feature Request overlay (anonymous Discord feedback)
+    if (key.name === 'j') {
+      state.featureRequestOpen = true
+      state.featureRequestBuffer = ''
+      state.featureRequestStatus = 'idle'
+      state.featureRequestError = null
+      return
+    }
+
     // 📖 Interval adjustment keys: W=decrease (faster), X=increase (slower)
     // 📖 Minimum 1s, maximum 60s
     if (key.name === 'w') {
@@ -4052,11 +4288,11 @@ async function main() {
 
   process.stdin.on('keypress', onKeyPress)
 
-  // 📖 Animation loop: render settings overlay, recommend overlay, help overlay, OR main table
+  // 📖 Animation loop: render settings overlay, recommend overlay, help overlay, feature request overlay, OR main table
   const ticker = setInterval(() => {
     state.frame++
     // 📖 Cache visible+sorted models each frame so Enter handler always matches the display
-    if (!state.settingsOpen && !state.recommendOpen) {
+    if (!state.settingsOpen && !state.recommendOpen && !state.featureRequestOpen) {
       const visible = state.results.filter(r => !r.hidden)
       state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
     }
@@ -4064,9 +4300,11 @@ async function main() {
       ? renderSettings()
       : state.recommendOpen
         ? renderRecommend()
-        : state.helpVisible
-          ? renderHelp()
-          : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer)
+        : state.featureRequestOpen
+          ? renderFeatureRequest()
+          : state.helpVisible
+            ? renderHelp()
+            : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer)
     process.stdout.write(ALT_HOME + content)
   }, Math.round(1000 / FPS))
 
