@@ -2,6 +2,57 @@
 
 ---
 
+## 0.1.69
+
+### Added
+
+- **iFlow provider** — new provider with 11 free coding models (TBStars2 200B, DeepSeek V3/V3.2/R1, Qwen3 Coder Plus/235B/32B/Max, Kimi K2, GLM-4.6). Free for individual users with no request limits. API key expires every 7 days.
+- **TUI footer contributors** — added contributor names directly in footer line (vava-nessa • erwinh22 • whit3rabbit • skylaweber).
+
+### Changed
+
+- **README updates** — updated model/provider counts to 150 models across 19 providers; updated provider count references throughout.
+
+### Fixed
+
+- **JSDoc in lib/config.js** — fixed broken JSON structure in config example (removed duplicate lines, fixed array/object brackets).
+- **CHANGELOG cleanup** — removed `[fork]` prefixes from 0.1.68 entries for cleaner presentation.
+
+---
+
+## 0.1.68
+
+### Added
+
+- **ZAI reverse proxy for OpenCode** -- When selecting a ZAI model, a local HTTP proxy automatically starts to translate OpenCode's `/v1/*` requests to ZAI's `/api/coding/paas/v4/*` API format. Proxy lifecycle is fully managed (starts on Enter, stops on OpenCode exit).
+- **Stale config cleanup on OpenCode exit** -- The `spawnOpenCode` exit handler now removes the ZAI provider block from `opencode.json` so leftover config does not cause "model not valid" errors on the next manual OpenCode launch.
+- **Smart Recommend (Q key)** — new modal overlay with a 3-question wizard (task type, priority, context budget) that runs a 10-second targeted analysis (2 pings/sec) and recommends the Top 3 models for your use case. Recommended models are pinned above favorites with 🎯 prefix and green row highlight.
+- **Config Profiles** — save/load named configuration profiles (`--profile work`, `--profile fast`, etc.). Each profile stores API keys, enabled providers, favorites, tier filters, ping interval, and default sort. **Shift+P** cycles through profiles live in the TUI.
+- **`--recommend` CLI flag** — auto-opens the Smart Recommend overlay on startup.
+- **`--profile <name>` CLI flag** — loads a saved profile at startup; errors if profile doesn't exist.
+- **Scoring engine** (`lib/utils.js`) — `TASK_TYPES`, `PRIORITY_TYPES`, `CONTEXT_BUDGETS`, `parseCtxToK()`, `parseSweToNum()`, `scoreModelForTask()`, `getTopRecommendations()` for the recommendation algorithm.
+- **Profile management** (`lib/config.js`) — `saveAsProfile()`, `loadProfile()`, `listProfiles()`, `deleteProfile()`, `getActiveProfileName()`, `setActiveProfile()`.
+- 43 new unit tests (131 total) covering scoring constants, `scoreModelForTask`, `getTopRecommendations`, `--profile`/`--recommend` arg parsing, and config profile CRUD.
+
+### Fixed
+
+- **OpenCode config path on Windows** -- OpenCode uses `xdg-basedir` which resolves to `%USERPROFILE%\.config` on all platforms. We were writing to `%APPDATA%\Roaming\opencode\` on Windows, so OpenCode never saw the ZAI provider config. Config path is now `~/.config/opencode/opencode.json` on all platforms.
+- **`apiKey` field for ZAI provider** -- Changed from `{env:ZAI_API_KEY}` template string to the actual resolved key so OpenCode's `@ai-sdk/openai-compatible` provider can authenticate immediately.
+- **`--profile` arg parsing** -- the profile value (e.g. `work` in `--profile work`) was incorrectly captured as `apiKey`; fixed with `skipIndices` Set in `parseArgs()`.
+- **`recommendScore` undefined** -- `sortResultsWithPinnedFavorites()` referenced `recommendScore` but it was never set on result objects; now set during `startRecommendAnalysis()`.
+
+### Changed
+
+- **Default ping interval 3s -> 60s** -- Reduced re-ping frequency from every 3 seconds to every 60 seconds for a calmer monitoring experience (still adjustable with W/X keys).
+- **Suppress MaxListeners warning** -- Set `NODE_NO_WARNINGS=1` in the OpenCode child process environment to suppress Node.js EventEmitter warnings.
+- **ZAI models synced to 5** -- Updated `sources.js` to 5 ZAI API models with SWE-bench scores: GLM-5 (77.8%), GLM-4.5 (75.0%), GLM-4.7 (73.8%), GLM-4.5-Air (72.0%), GLM-4.6 (70.0%).
+- **README updates** -- Updated model/provider counts (139 models, 18 providers), ZAI model table with SWE-bench scores, ping interval references (60s), added ZAI proxy documentation.
+- **Help overlay (K)** — removed the Filters section; moved `T` (Cycle tier) and `N` (Cycle origin) shortcuts into their respective column description rows. Added `Q` (Smart Recommend) and `Shift+P` (Cycle profile) shortcuts. Added `--recommend` and `--profile` to the CLI flags section.
+- **Sort/pin order** — `sortResultsWithPinnedFavorites()` now pins recommended+favorite models first, then recommended-only, then favorite-only, then normal sorted models.
+- **Animation loop priority** — Settings > Recommend > Help > Table.
+
+---
+
 ## 0.1.68
 
 ### Added
