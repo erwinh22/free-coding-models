@@ -6,19 +6,25 @@
 
 ### Added
 
-- **Stability Score** — new composite 0–100 metric combining p95 latency (30%), jitter/σ (30%), spike rate (20%), and uptime (20%). Displayed as a "Stab" column in the TUI with color-coded thresholds (green ≥80, cyan ≥60, yellow ≥40, red <40).
+- **Stability Score** — new composite 0–100 metric combining p95 latency (30%), jitter/σ (30%), spike rate (20%), and uptime (20%). Displayed as a color-coded column in the TUI (green ≥80, cyan ≥60, yellow ≥40, red <40).
 - **p95 latency** (`getP95`) — 95th percentile latency from successful pings. Answers "95% of requests are faster than X ms."
 - **Jitter** (`getJitter`) — standard deviation of latency. Low jitter = predictable, high jitter = erratic/spiky.
 - **"Spiky" verdict** — new verdict that catches models with good average latency but terrible tail latency (p95 spikes). A model with avg 250ms but p95 6000ms now gets flagged as "📈 Spiky" instead of "🚀 Perfect".
 - **Stability sorting** — press `B` to sort by stability score. Most stable models rise to the top.
 - 24 new unit tests covering p95, jitter, stability score, Spiky verdict, and stability sorting.
+- **README: TUI Columns reference table** — full 12-column table documenting every column (Rank, Tier, SWE%, Model, Origin, Latest, Avg, Health, Verdict, Stability, Context, Up%).
+- **README: Stability Score section** — documents the formula, weights, color thresholds, and an example calculation.
+- **README: Verdict values table** — lists all 7 verdict categories with their emoji, meaning, and criteria.
 
 ### Changed
 
+- **"Stab" column renamed to "Stability"** — column header widened from 6 to 11 characters; header text now reads `Stability` with the `B` sort-key letter highlighted in bold white (dim `Sta` + bold `b` + dim `ility`).
+- **SWE% column: 8-band color gradient** — replaced the old 3-band color scheme (green ≥50, yellow ≥30, dim otherwise) with an 8-band gradient matching `TIER_COLOR`: ≥70% bright neon green, ≥60% green, ≥50% yellow-green, ≥40% yellow, ≥35% amber, ≥30% orange-red, ≥20% red, <20% dark red.
 - `getVerdict()` is now stability-aware: models in "Perfect" or "Normal" avg range get downgraded to "Spiky" when p95 shows extreme tail latency (requires ≥3 pings to avoid false positives).
 - `findBestModel()` now uses a 4-key sort: status → avg latency → stability score → uptime (was 3-key: status → avg → uptime).
 - `sortResults()` supports new `'stability'` column.
 - `VERDICT_ORDER` updated to include "Spiky" between "Slow" and "Very Slow".
+- **README: keyboard shortcuts** updated to include `B` for Stability sort; "How it works" diagram updated.
 
 ---
 

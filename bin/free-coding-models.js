@@ -904,7 +904,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const W_AVG = 11
   const W_STATUS = 18
   const W_VERDICT = 14
-  const W_STAB = 6
+  const W_STAB = 11
   const W_UPTIME = 6
 
   // 📖 Sort models using the shared helper
@@ -934,7 +934,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const avgH     = sortColumn === 'avg' ? dir + ' Avg Ping' : 'Avg Ping'
   const healthH  = sortColumn === 'condition' ? dir + ' Health' : 'Health'
   const verdictH = sortColumn === 'verdict' ? dir + ' Verdict' : 'Verdict'
-  const stabH    = sortColumn === 'stability' ? dir + ' Stab' : 'Stab'
+  const stabH    = sortColumn === 'stability' ? dir + ' Stability' : 'Stability'
   const uptimeH  = sortColumn === 'uptime' ? dir + ' Up%' : 'Up%'
 
   // 📖 Helper to colorize first letter for keyboard shortcuts
@@ -961,10 +961,15 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const avgH_c     = sortColumn === 'avg' ? chalk.bold.cyan(avgH.padEnd(W_AVG)) : colorFirst('Avg Ping', W_AVG)
   const healthH_c  = sortColumn === 'condition' ? chalk.bold.cyan(healthH.padEnd(W_STATUS)) : colorFirst('Health', W_STATUS)
   const verdictH_c = sortColumn === 'verdict' ? chalk.bold.cyan(verdictH.padEnd(W_VERDICT)) : colorFirst(verdictH, W_VERDICT)
-  const stabH_c    = sortColumn === 'stability' ? chalk.bold.cyan(stabH.padEnd(W_STAB)) : colorFirst('Stab', W_STAB)
+  // 📖 Custom colorization for Stability: highlight 'B' (the sort key) since 'S' is taken by SWE
+  const stabH_c    = sortColumn === 'stability' ? chalk.bold.cyan(stabH.padEnd(W_STAB)) : (() => {
+    const plain = 'Stability'
+    const padding = ' '.repeat(Math.max(0, W_STAB - plain.length))
+    return chalk.dim('Sta') + chalk.white.bold('b') + chalk.dim('ility' + padding)
+  })()
   const uptimeH_c  = sortColumn === 'uptime' ? chalk.bold.cyan(uptimeH.padStart(W_UPTIME)) : colorFirst(uptimeH, W_UPTIME, chalk.green)
 
-  // 📖 Header with proper spacing (column order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stab, Up%)
+  // 📖 Header with proper spacing (column order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stability, Up%)
   lines.push('  ' + rankH_c + '  ' + tierH_c + '  ' + sweH_c + '  ' + ctxH_c + '  ' + modelH_c + '  ' + originH_c + '  ' + pingH_c + '  ' + avgH_c + '  ' + healthH_c + '  ' + verdictH_c + '  ' + stabH_c + '  ' + uptimeH_c)
 
   // 📖 Separator line
@@ -1008,11 +1013,25 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     const nameWidth = Math.max(0, W_MODEL - favoritePrefix.length)
     const name = favoritePrefix + r.label.slice(0, nameWidth).padEnd(nameWidth)
     const sweScore = r.sweScore ?? '—'
-    const sweCell = sweScore !== '—' && parseFloat(sweScore) >= 50 
-      ? chalk.greenBright(sweScore.padEnd(W_SWE))
-      : sweScore !== '—' && parseFloat(sweScore) >= 30
-      ? chalk.yellow(sweScore.padEnd(W_SWE))
-      : chalk.dim(sweScore.padEnd(W_SWE))
+    // 📖 SWE% colorized on the same gradient as Tier:
+    //   ≥70% bright neon green (S+), ≥60% green (S), ≥50% yellow-green (A+),
+    //   ≥40% yellow (A), ≥35% amber (A-), ≥30% orange-red (B+),
+    //   ≥20% red (B), <20% dark red (C), '—' dim
+    let sweCell
+    if (sweScore === '—') {
+      sweCell = chalk.dim(sweScore.padEnd(W_SWE))
+    } else {
+      const sweVal = parseFloat(sweScore)
+      const swePadded = sweScore.padEnd(W_SWE)
+      if (sweVal >= 70)      sweCell = chalk.bold.rgb(0,   255,  80)(swePadded)
+      else if (sweVal >= 60) sweCell = chalk.bold.rgb(80,  220,   0)(swePadded)
+      else if (sweVal >= 50) sweCell = chalk.bold.rgb(170, 210,   0)(swePadded)
+      else if (sweVal >= 40) sweCell = chalk.rgb(240, 190,   0)(swePadded)
+      else if (sweVal >= 35) sweCell = chalk.rgb(255, 130,   0)(swePadded)
+      else if (sweVal >= 30) sweCell = chalk.rgb(255,  70,   0)(swePadded)
+      else if (sweVal >= 20) sweCell = chalk.rgb(210,  20,   0)(swePadded)
+      else                   sweCell = chalk.rgb(140,   0,   0)(swePadded)
+    }
     
     // 📖 Context window column - colorized by size (larger = better)
     const ctxRaw = r.ctx ?? '—'
@@ -1162,7 +1181,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
       uptimeCell = chalk.red(uptimeStr.padStart(W_UPTIME))
     }
 
-    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stab, Up%)
+    // 📖 Build row with double space between columns (order: Rank, Tier, SWE%, CTX, Model, Origin, Latest Ping, Avg Ping, Health, Verdict, Stability, Up%)
     const row = '  ' + num + '  ' + tier + '  ' + sweCell + '  ' + ctxCell + '  ' + name + '  ' + source + '  ' + pingCell + '  ' + avgCell + '  ' + status + '  ' + speedCell + '  ' + stabCell + '  ' + uptimeCell
 
     if (isCursor && r.isFavorite) {

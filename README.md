@@ -36,7 +36,9 @@
   <a href="#-requirements">Requirements</a> •
   <a href="#-installation">Installation</a> •
   <a href="#-usage">Usage</a> •
-  <a href="#-models">Models</a> •
+  <a href="#-tui-columns">Columns</a> •
+  <a href="#-stability-score">Stability</a> •
+  <a href="#-coding-models">Models</a> •
   <a href="#-opencode-integration">OpenCode</a> •
   <a href="#-openclaw-integration">OpenClaw</a> •
   <a href="#-how-it-works">How it works</a>
@@ -55,6 +57,7 @@
 - **⏱ Continuous monitoring** — Pings all models every 2 seconds forever, never stops
 - **📈 Rolling averages** — Avg calculated from ALL successful pings since start
 - **📊 Uptime tracking** — Percentage of successful pings shown in real-time
+- **📐 Stability score** — Composite 0–100 score measuring consistency (p95, jitter, spikes, uptime) — a model with 400ms avg and stable responses beats a 250ms avg model that randomly spikes to 6s
 - **🔄 Auto-retry** — Timeout models keep getting retried, nothing is ever "given up on"
 - **🎮 Interactive selection** — Navigate with arrow keys directly in the table, press Enter to act
 - **🔀 Startup mode menu** — Choose between OpenCode and OpenClaw before the TUI launches
@@ -414,6 +417,92 @@ Current tier filter is shown in the header badge (e.g., `[Tier S]`)
 
 ---
 
+## 📊 TUI Columns
+
+The main table displays one row per model with the following columns:
+
+| Column | Sort key | Description |
+|--------|----------|-------------|
+| **Rank** | `R` | Position based on current sort order (medals for top 3: 🥇🥈🥉) |
+| **Tier** | `Y` | SWE-bench tier (S+, S, A+, A, A-, B+, B, C) |
+| **SWE%** | `S` | SWE-bench Verified score — the industry-standard benchmark for real GitHub issue resolution |
+| **CTX** | `C` | Context window size in thousands of tokens (e.g. `128k`) |
+| **Model** | `M` | Model display name (favorites show ⭐ prefix) |
+| **Origin** | `N` | Provider name (NIM, Groq, Cerebras, etc.) — press `N` to cycle origin filter |
+| **Latest Ping** | `L` | Most recent round-trip latency in milliseconds |
+| **Avg Ping** | `A` | Rolling average of ALL successful pings since launch |
+| **Health** | `H` | Current status: UP ✅, NO KEY 🔑, Timeout ⏳, Overloaded 🔥, Not Found 🚫 |
+| **Verdict** | `V` | Health verdict based on avg latency + stability analysis (see below) |
+| **Stability** | `B` | Composite 0–100 consistency score (see [Stability Score](#-stability-score)) |
+| **Up%** | `U` | Uptime — percentage of successful pings out of total attempts |
+
+### Verdict values
+
+The Verdict column combines average latency with stability analysis:
+
+| Verdict | Meaning |
+|---------|---------|
+| **Perfect** | Avg < 400ms with stable p95/jitter |
+| **Normal** | Avg < 1000ms, consistent responses |
+| **Slow** | Avg 1000–2000ms |
+| **Spiky** | Good avg but erratic tail latency (p95 >> avg) |
+| **Very Slow** | Avg 2000–5000ms |
+| **Overloaded** | Server returned 429/503 (rate limited or capacity hit) |
+| **Unstable** | Was previously up but now timing out, or avg > 5000ms |
+| **Not Active** | No successful pings yet |
+| **Pending** | First ping still in flight |
+
+---
+
+## 📐 Stability Score
+
+The **Stability** column (sort with `B` key) shows a composite 0–100 score that answers: *"How consistent and predictable is this model?"*
+
+Average latency alone is misleading — a model averaging 250ms that randomly spikes to 6 seconds *feels* slower in practice than a steady 400ms model. The stability score captures this.
+
+### Formula
+
+Four signals are normalized to 0–100 each, then combined with weights:
+
+```
+Stability = 0.30 × p95_score
+          + 0.30 × jitter_score
+          + 0.20 × spike_score
+          + 0.20 × reliability_score
+```
+
+| Component | Weight | What it measures | How it's normalized |
+|-----------|--------|-----------------|---------------------|
+| **p95 latency** | 30% | Tail-latency spikes — the worst 5% of response times | `100 × (1 - p95 / 5000)`, clamped to 0–100 |
+| **Jitter (σ)** | 30% | Erratic response times — standard deviation of ping times | `100 × (1 - jitter / 2000)`, clamped to 0–100 |
+| **Spike rate** | 20% | Fraction of pings above 3000ms | `100 × (1 - spikes / total_pings)` |
+| **Reliability** | 20% | Uptime — fraction of successful HTTP 200 pings | Direct uptime percentage (0–100) |
+
+### Color coding
+
+| Score | Color | Interpretation |
+|-------|-------|----------------|
+| **80–100** | Green | Rock-solid — very consistent, safe to rely on |
+| **60–79** | Cyan | Good — occasional variance but generally stable |
+| **40–59** | Yellow | Shaky — noticeable inconsistency |
+| **< 40** | Red | Unreliable — frequent spikes or failures |
+| **—** | Dim | No data yet (no successful pings) |
+
+### Example
+
+Two models with similar average latency, very different real-world experience:
+
+```
+Model A:  avg 250ms,  p95 6000ms,  jitter 1800ms  →  Stability ~30  (red)
+Model B:  avg 400ms,  p95  650ms,  jitter  120ms  →  Stability ~85  (green)
+```
+
+Model B is the better choice despite its higher average — it won't randomly stall your coding workflow.
+
+> 💡 **Tip:** Sort by Stability (`B` key) after a few minutes of monitoring to find the models that deliver the most predictable performance.
+
+---
+
 ## 🔌 OpenCode Integration
 
 **The easiest way** — let `free-coding-models` do everything:
@@ -589,19 +678,19 @@ This script:
 ## ⚙️ How it works
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. Enter alternate screen buffer (like vim/htop/less)      │
-│  2. Ping ALL models in parallel                             │
-│  3. Display real-time table with Latest/Avg/Up% columns     │
-│  4. Re-ping ALL models every 2 seconds (forever)           │
-│  5. Update rolling averages from ALL successful pings      │
-│  6. User can navigate with ↑↓ and select with Enter       │
-│  7. On Enter (OpenCode): set model, launch OpenCode        │
-│  8. On Enter (OpenClaw): update ~/.openclaw/openclaw.json  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  1. Enter alternate screen buffer (like vim/htop/less)           │
+│  2. Ping ALL models in parallel                                  │
+│  3. Display real-time table with Latest/Avg/Stability/Up%        │
+│  4. Re-ping ALL models every 2 seconds (forever)                │
+│  5. Update rolling averages + stability scores per model        │
+│  6. User can navigate with ↑↓ and select with Enter            │
+│  7. On Enter (OpenCode): set model, launch OpenCode             │
+│  8. On Enter (OpenClaw): update ~/.openclaw/openclaw.json       │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-**Result:** Continuous monitoring interface that stays open until you select a model or press Ctrl+C. Rolling averages give you accurate long-term latency data, uptime percentage tracks reliability, and you can configure your tool of choice with your chosen model in one keystroke.
+**Result:** Continuous monitoring interface that stays open until you select a model or press Ctrl+C. Rolling averages give you accurate long-term latency data, the stability score reveals which models are truly consistent vs. deceptively spikey, and you can configure your tool of choice with one keystroke.
 
 ---
 
@@ -697,7 +786,7 @@ This script:
 **Keyboard shortcuts (main TUI):**
 - **↑↓** — Navigate models
 - **Enter** — Select model (launches OpenCode or sets OpenClaw default, depending on mode)
-- **R/Y/O/M/L/A/S/N/H/V/U** — Sort by Rank/Tier/Origin/Model/LatestPing/Avg/SWE/Ctx/Health/Verdict/Uptime
+- **R/Y/O/M/L/A/S/N/H/V/B/U** — Sort by Rank/Tier/Origin/Model/LatestPing/Avg/SWE/Ctx/Health/Verdict/Stability/Uptime
 - **F** — Toggle favorite on selected model (⭐ in Model column, pinned at top)
 - **T** — Cycle tier filter (All → S+ → S → A+ → A → A- → B+ → B → C → All)
 - **Z** — Cycle mode (OpenCode CLI → OpenCode Desktop → OpenClaw)
