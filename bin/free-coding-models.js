@@ -92,6 +92,8 @@ import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { createServer } from 'net'
+import { createServer as createHttpServer } from 'http'
+import { request as httpsRequest } from 'https'
 import { MODELS, sources } from '../sources.js'
 import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
 import { getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP } from '../lib/utils.js'
@@ -1643,13 +1645,64 @@ function checkNvidiaNimConfig() {
 // 📖 Resolves the actual API key from config/env and passes it as an env var
 // 📖 to the child process so OpenCode's {env:GROQ_API_KEY} references work
 // 📖 even when the key is only in ~/.free-coding-models.json (not in shell env).
-async function spawnOpenCode(args, providerKey, fcmConfig) {
+// 📖 createZaiProxy: Localhost reverse proxy that bridges ZAI's non-standard API paths
+// 📖 to OpenCode's expected /v1/* OpenAI-compatible format.
+// 📖 OpenCode's local provider calls GET /v1/models for discovery and POST /v1/chat/completions
+// 📖 for inference. ZAI's API lives at /api/coding/paas/v4/* instead — this proxy rewrites.
+// 📖 Returns { server, port } — caller must server.close() when done.
+async function createZaiProxy(apiKey) {
+  const server = createHttpServer((req, res) => {
+    let targetPath = req.url
+    // 📖 Rewrite /v1/* → /api/coding/paas/v4/*
+    if (targetPath.startsWith('/v1/')) {
+      targetPath = '/api/coding/paas/v4/' + targetPath.slice(4)
+    } else if (targetPath.startsWith('/v1')) {
+      targetPath = '/api/coding/paas/v4' + targetPath.slice(3)
+    } else {
+      // 📖 Non /v1 paths (e.g. /api/v0/ health checks) — reject
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const headers = { ...req.headers, host: 'api.z.ai' }
+    if (apiKey) headers.authorization = `Bearer ${apiKey}`
+    // 📖 Remove transfer-encoding to avoid chunked encoding issues with https.request
+    delete headers['transfer-encoding']
+    const proxyReq = httpsRequest({
+      hostname: 'api.z.ai',
+      port: 443,
+      path: targetPath,
+      method: req.method,
+      headers,
+    }, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers)
+      proxyRes.pipe(res)
+    })
+    proxyReq.on('error', () => { res.writeHead(502); res.end() })
+    req.pipe(proxyReq)
+  })
+  await new Promise(r => server.listen(0, '127.0.0.1', r))
+  return { server, port: server.address().port }
+}
+
+async function spawnOpenCode(args, providerKey, fcmConfig, existingZaiProxy = null) {
   const envVarName = ENV_VAR_NAMES[providerKey]
   const resolvedKey = getApiKey(fcmConfig, providerKey)
   const childEnv = { ...process.env }
   const finalArgs = [...args]
   const hasExplicitPortArg = finalArgs.includes('--port')
   if (envVarName && resolvedKey) childEnv[envVarName] = resolvedKey
+
+  // 📖 ZAI proxy: OpenCode's Go binary doesn't know about ZAI as a provider.
+  // 📖 We spin up a localhost proxy that rewrites /v1/* → /api/coding/paas/v4/*
+  // 📖 and register ZAI as a custom openai-compatible provider in opencode.json.
+  // 📖 If startOpenCode already started the proxy, reuse it (existingZaiProxy).
+  let zaiProxy = existingZaiProxy
+  if (providerKey === 'zai' && resolvedKey && !zaiProxy) {
+    const { server, port } = await createZaiProxy(resolvedKey)
+    zaiProxy = server
+    console.log(chalk.dim(`  🔀 ZAI proxy listening on port ${port} (rewrites /v1/* → ZAI API)`))
+  }
 
   // 📖 In tmux, OpenCode sub-agents need a listening port to open extra panes.
   // 📖 We auto-pick one if the user did not provide --port explicitly.
@@ -1678,8 +1731,12 @@ async function spawnOpenCode(args, providerKey, fcmConfig) {
   })
 
   return new Promise((resolve, reject) => {
-    child.on('exit', resolve)
+    child.on('exit', (code) => {
+      if (zaiProxy) zaiProxy.close()
+      resolve(code)
+    })
     child.on('error', (err) => {
+      if (zaiProxy) zaiProxy.close()
       if (err.code === 'ENOENT') {
         console.error(chalk.red('\n  X Could not find "opencode" -- is it installed and in your PATH?'))
         console.error(chalk.dim('    Install: npm i -g opencode   or see https://opencode.ai'))
@@ -1789,8 +1846,70 @@ After installation, you can use: opencode --model ${modelRef}`
       return
     }
 
-    // 📖 Groq: built-in OpenCode provider -- needs provider block with apiKey in opencode.json.
-    // 📖 Cerebras: NOT built-in -- needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
+    // 📖 ZAI: OpenCode's Go binary has no built-in ZAI provider.
+    // 📖 We start a localhost proxy that rewrites /v1/* → /api/coding/paas/v4/*
+    // 📖 and register ZAI as a custom openai-compatible provider pointing to the proxy.
+    // 📖 This gives OpenCode a standard provider/model format (zai/glm-5) it understands.
+    if (providerKey === 'zai') {
+      const resolvedKey = getApiKey(fcmConfig, providerKey)
+      if (!resolvedKey) {
+        console.log(chalk.yellow('  ⚠ ZAI API key not found. Set ZAI_API_KEY environment variable.'))
+        console.log()
+        return
+      }
+
+      // 📖 Start proxy FIRST to get the port for config
+      const { server: zaiProxyServer, port: zaiProxyPort } = await createZaiProxy(resolvedKey)
+      console.log(chalk.dim(`  🔀 ZAI proxy listening on port ${zaiProxyPort} (rewrites /v1/* → ZAI API)`))
+
+      console.log(chalk.green(`  🚀 Setting ${chalk.bold(model.label)} as default…`))
+      console.log(chalk.dim(`  Model: ${modelRef}`))
+      console.log()
+
+      const config = loadOpenCodeConfig()
+      const backupPath = `${getOpenCodeConfigPath()}.backup-${Date.now()}`
+
+      if (existsSync(getOpenCodeConfigPath())) {
+        copyFileSync(getOpenCodeConfigPath(), backupPath)
+        console.log(chalk.dim(`  💾 Backup: ${backupPath}`))
+      }
+
+      // 📖 Register ZAI as an openai-compatible provider pointing to our localhost proxy
+      if (!config.provider) config.provider = {}
+      config.provider.zai = {
+        npm: '@ai-sdk/openai-compatible',
+        name: 'ZAI',
+        options: {
+          baseURL: `http://127.0.0.1:${zaiProxyPort}/v1`,
+        },
+        models: {}
+      }
+      config.provider.zai.models[ocModelId] = { name: model.label }
+      config.model = modelRef
+
+      saveOpenCodeConfig(config)
+
+      const savedConfig = loadOpenCodeConfig()
+      console.log(chalk.dim(`  📝 Config saved to: ${getOpenCodeConfigPath()}`))
+      console.log(chalk.dim(`  📝 Default model in config: ${savedConfig.model || 'NOT SET'}`))
+      console.log()
+
+      if (savedConfig.model === config.model) {
+        console.log(chalk.green(`  ✓ Default model set to: ${modelRef}`))
+      } else {
+        console.log(chalk.yellow(`  ⚠ Config might not have been saved correctly`))
+      }
+      console.log()
+      console.log(chalk.dim('  Starting OpenCode…'))
+      console.log()
+
+      // 📖 Pass existing proxy to spawnOpenCode so it doesn't start a second one
+      await spawnOpenCode(['--model', modelRef], providerKey, fcmConfig, zaiProxyServer)
+      return
+    }
+
+    // 📖 Groq: built-in OpenCode provider — needs provider block with apiKey in opencode.json.
+    // 📖 Cerebras: NOT built-in — needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
     // 📖 Both need the model registered in provider.<key>.models so OpenCode can find it.
     console.log(chalk.green(`  🚀 Setting ${chalk.bold(model.label)} as default…`))
     console.log(chalk.dim(`  Model: ${modelRef}`))
@@ -1962,16 +2081,6 @@ After installation, you can use: opencode --model ${modelRef}`
           },
           models: {}
         }
-      } else if (providerKey === 'zai') {
-        config.provider.zai = {
-          npm: '@ai-sdk/openai-compatible',
-          name: 'ZAI',
-          options: {
-            baseURL: 'https://api.z.ai/api/coding/paas/v4',
-            apiKey: '{env:ZAI_API_KEY}'
-          },
-          models: {}
-        }
       }
     }
 
@@ -2116,6 +2225,16 @@ ${isWindows ? 'set NVIDIA_API_KEY=your_key_here' : 'export NVIDIA_API_KEY=your_k
       return
     }
 
+    // 📖 ZAI: Desktop mode can't use the localhost proxy (Desktop is a standalone app).
+    // 📖 Direct the user to use OpenCode CLI mode instead, which supports ZAI via proxy.
+    if (providerKey === 'zai') {
+      console.log(chalk.yellow('  ⚠ ZAI models are supported in OpenCode CLI mode only (not Desktop).'))
+      console.log(chalk.dim('    Reason: ZAI requires a localhost proxy that only works with the CLI spawn.'))
+      console.log(chalk.dim('    Use OpenCode CLI mode (default) to launch ZAI models.'))
+      console.log()
+      return
+    }
+
     // 📖 Groq: built-in OpenCode provider — needs provider block with apiKey in opencode.json.
     // 📖 Cerebras: NOT built-in — needs @ai-sdk/openai-compatible + baseURL, like NVIDIA.
     // 📖 Both need the model registered in provider.<key>.models so OpenCode can find it.
@@ -2237,16 +2356,6 @@ ${isWindows ? 'set NVIDIA_API_KEY=your_key_here' : 'export NVIDIA_API_KEY=your_k
           options: {
             baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
             apiKey: '{env:GOOGLE_API_KEY}'
-          },
-          models: {}
-        }
-      } else if (providerKey === 'zai') {
-        config.provider.zai = {
-          npm: '@ai-sdk/openai-compatible',
-          name: 'ZAI',
-          options: {
-            baseURL: 'https://api.z.ai/api/coding/paas/v4',
-            apiKey: '{env:ZAI_API_KEY}'
           },
           models: {}
         }

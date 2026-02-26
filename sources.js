@@ -237,11 +237,9 @@ export const zai = [
   // ── S+ tier — SWE-bench Verified ≥70% ──
   ['zai/glm-5',                                           'GLM-5',               'S+', '77.8%', '128k'],
   ['zai/glm-4.7',                                         'GLM-4.7',             'S+', '73.8%', '200k'],
-  ['zai/glm-4.7-Flash',                                   'GLM-4.7-Flash',       'S+', '73.8%', '200k'],
-  ['zai/glm-4.7-FlashX',                                  'GLM-4.7-FlashX',      'S+', '73.8%', '200k'],
+  ['zai/glm-4.5',                                         'GLM-4.5',             'S+', '75.0%', '128k'],
+  ['zai/glm-4.5-air',                                     'GLM-4.5-Air',         'S+', '72.0%', '128k'],
   ['zai/glm-4.6',                                         'GLM-4.6',             'S+', '70.0%', '128k'],
-  ['zai/glm-4.6V-FlashX',                                 'GLM-4.6V-FlashX',     'S+', '70.0%', '128k'],
-  ['zai/glm-ocr',                                         'GLM-OCR',             'A+', '60.0%', '128k'],
 ]
 
 // 📖 SiliconFlow source - https://cloud.siliconflow.cn
