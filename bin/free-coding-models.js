@@ -2117,7 +2117,7 @@ async function startOpenCodeDesktop(model, fcmConfig) {
     if (isMac) {
       command = 'open -a OpenCode'
     } else if (isWindows) {
-      command = 'start "" "%LOCALAPPDATA%\\\\Programs\\\\OpenCode\\\\OpenCode.exe" 2>nul || start "" "%PROGRAMFILES%\\\\OpenCode\\\\OpenCode.exe" 2>nul || start OpenCode'
+      command = 'start "" "%LOCALAPPDATA%\\Programs\\OpenCode\\OpenCode.exe" 2>nul || start "" "%PROGRAMFILES%\\OpenCode\\OpenCode.exe" 2>nul || start OpenCode'
     } else if (isLinux) {
       command = `opencode-desktop --model ${modelRef} 2>/dev/null || flatpak run ai.opencode.OpenCode --model ${modelRef} 2>/dev/null || snap run opencode --model ${modelRef} 2>/dev/null || xdg-open /usr/share/applications/opencode.desktop 2>/dev/null || echo "OpenCode not found"`
     }
