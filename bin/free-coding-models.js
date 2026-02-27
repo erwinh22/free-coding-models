@@ -3114,10 +3114,58 @@ async function main() {
       lines.push(chalk.red(`      ${state.settingsUpdateError}`))
     }
 
+    // 📖 TUI Settings section — configurable display defaults
+    // 📖 5 rows: Sort Column, Sort Direction, Tier Filter, Ping Interval, Hide No-Key
+    const TUI_LABELS = ['Sort Column', 'Sort Direction', 'Tier Filter', 'Ping Interval', 'Hide No-Key Providers']
+    const SORT_COL_LABELS = {
+      rank: 'Rank', tier: 'Tier', origin: 'Origin', model: 'Model',
+      ping: 'Latest', avg: 'Avg Ping', swe: 'SWE%', ctx: 'CTX',
+      condition: 'Health', verdict: 'Verdict', stability: 'Stability', uptime: 'Uptime'
+    }
+    const tuiStartIdx = updateRowIdx + 1
+
+    lines.push('')
+    lines.push(`  ${chalk.bold('🎛 TUI Settings')}  ${chalk.dim('(Enter/Space to change)')}`)
+    lines.push(`  ${chalk.dim('  ' + '─'.repeat(112))}`)
+    lines.push('')
+
+    for (let i = 0; i < TUI_LABELS.length; i++) {
+      const rowIdx = tuiStartIdx + i
+      const isCursor = state.settingsCursor === rowIdx
+      const bullet = isCursor ? chalk.bold.cyan('  ❯ ') : chalk.dim('    ')
+      const label = chalk.bold(TUI_LABELS[i].padEnd(26))
+      let value = ''
+      if (i === 0) {
+        // Sort Column
+        value = chalk.cyan(SORT_COL_LABELS[state.sortColumn] || state.sortColumn)
+        if (isCursor) value += chalk.dim('  ← Enter to cycle')
+      } else if (i === 1) {
+        // Sort Direction
+        value = state.sortDirection === 'asc' ? chalk.greenBright('Ascending ↑') : chalk.yellow('Descending ↓')
+        if (isCursor) value += chalk.dim('  ← Enter to toggle')
+      } else if (i === 2) {
+        // Tier Filter
+        const activeTier = TIER_CYCLE[tierFilterMode]
+        value = activeTier ? chalk.cyan(activeTier) : chalk.dim('All')
+        if (isCursor) value += chalk.dim('  ← Enter to cycle')
+      } else if (i === 3) {
+        // Ping Interval
+        value = chalk.cyan(`${state.pingInterval / 1000}s`)
+        if (isCursor) value += chalk.dim('  ← Enter +1s / Space -1s')
+      } else if (i === 4) {
+        // Hide No-Key
+        value = state.hideNoKey ? chalk.greenBright('ON') : chalk.dim('OFF')
+        if (isCursor) value += chalk.dim('  ← Enter to toggle')
+      }
+      const row = `${bullet}${label}  ${value}`
+      cursorLineByRow[rowIdx] = lines.length
+      lines.push(isCursor ? chalk.bgRgb(30, 30, 60)(row) : row)
+    }
+
     // 📖 Profiles section — list saved profiles with active indicator + delete support
     const savedProfiles = listProfiles(state.config)
-    const profileStartIdx = updateRowIdx + 1
-    const maxRowIdx = savedProfiles.length > 0 ? profileStartIdx + savedProfiles.length - 1 : updateRowIdx
+    const profileStartIdx = tuiStartIdx + TUI_LABELS.length
+    const maxRowIdx = savedProfiles.length > 0 ? profileStartIdx + savedProfiles.length - 1 : tuiStartIdx + TUI_LABELS.length - 1
 
     lines.push('')
     lines.push(`  ${chalk.bold('📋 Profiles')}  ${chalk.dim(savedProfiles.length > 0 ? `(${savedProfiles.length} saved)` : '(none — press Shift+S in main view to save)')}`)
@@ -3240,11 +3288,16 @@ async function main() {
     lines.push(`  ${chalk.yellow('↑↓')}           Navigate rows`)
     lines.push(`  ${chalk.yellow('PgUp/PgDn')}    Jump by page`)
     lines.push(`  ${chalk.yellow('Home/End')}     Jump first/last row`)
-    lines.push(`  ${chalk.yellow('Enter')}        Edit key / check-install update`)
-    lines.push(`  ${chalk.yellow('Space')}        Toggle provider enable/disable`)
+    lines.push(`  ${chalk.yellow('Enter')}        Edit key / toggle setting / cycle value / load profile`)
+    lines.push(`  ${chalk.yellow('Space')}        Toggle provider / reverse-cycle setting / decrease interval`)
     lines.push(`  ${chalk.yellow('T')}            Test selected provider key`)
     lines.push(`  ${chalk.yellow('U')}            Check updates manually`)
     lines.push(`  ${chalk.yellow('Esc')}          Close settings`)
+    lines.push('')
+    lines.push(`  ${chalk.bold('TUI Settings (in Settings screen)')}`)
+    lines.push(`  ${chalk.dim('Sort Column, Sort Direction, Tier Filter, Ping Interval, Hide No-Key')}`)
+    lines.push(`  ${chalk.dim('Use Enter to cycle forward / toggle, Space to cycle backward / toggle.')}`)
+    lines.push(`  ${chalk.dim('Changes are auto-saved to config and applied immediately.')}`)
     lines.push('')
     lines.push(`  ${chalk.bold('CLI Flags')}`)
     lines.push(`  ${chalk.dim('Usage: free-coding-models [options]')}`)
@@ -4057,10 +4110,13 @@ async function main() {
     if (state.settingsOpen) {
       const providerKeys = Object.keys(sources)
       const updateRowIdx = providerKeys.length
-      // 📖 Profile rows start after update row — one row per saved profile
+      // 📖 TUI Settings rows (5 rows) come after update row
+      const tuiStartIdx = updateRowIdx + 1
+      const TUI_ROW_COUNT = 5 // Sort Column, Sort Direction, Tier Filter, Ping Interval, Hide No-Key
+      // 📖 Profile rows start after TUI settings rows
       const savedProfiles = listProfiles(state.config)
-      const profileStartIdx = updateRowIdx + 1
-      const maxRowIdx = savedProfiles.length > 0 ? profileStartIdx + savedProfiles.length - 1 : updateRowIdx
+      const profileStartIdx = tuiStartIdx + TUI_ROW_COUNT
+      const maxRowIdx = savedProfiles.length > 0 ? profileStartIdx + savedProfiles.length - 1 : tuiStartIdx + TUI_ROW_COUNT - 1
 
       // 📖 Edit mode: capture typed characters for the API key
       if (state.settingsEditMode) {
@@ -4164,6 +4220,48 @@ async function main() {
           return
         }
 
+        // 📖 TUI Settings rows: Enter cycles/toggles the setting value
+        if (state.settingsCursor >= tuiStartIdx && state.settingsCursor < tuiStartIdx + TUI_ROW_COUNT) {
+          const tuiRowOffset = state.settingsCursor - tuiStartIdx
+          const SORT_COL_ORDER = ['rank', 'tier', 'origin', 'model', 'ping', 'avg', 'swe', 'ctx', 'condition', 'verdict', 'stability', 'uptime']
+          if (tuiRowOffset === 0) {
+            // 📖 Sort Column — cycle to next column
+            const curIdx = SORT_COL_ORDER.indexOf(state.sortColumn)
+            state.sortColumn = SORT_COL_ORDER[(curIdx + 1) % SORT_COL_ORDER.length]
+            saveSettings(config, { sortColumn: state.sortColumn, sortAsc: state.sortDirection === 'asc' })
+            saveConfig(config)
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 1) {
+            // 📖 Sort Direction — toggle asc/desc
+            state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc'
+            saveSettings(config, { sortColumn: state.sortColumn, sortAsc: state.sortDirection === 'asc' })
+            saveConfig(config)
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 2) {
+            // 📖 Tier Filter — cycle to next tier
+            tierFilterMode = (tierFilterMode + 1) % TIER_CYCLE.length
+            applyTierFilter()
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 3) {
+            // 📖 Ping Interval — increase by 1s (Enter = slower)
+            state.pingInterval = Math.min(60000, state.pingInterval + 1000)
+            saveSettings(config, { pingInterval: state.pingInterval })
+            saveConfig(config)
+          } else if (tuiRowOffset === 4) {
+            // 📖 Hide No-Key — toggle
+            state.hideNoKey = !state.hideNoKey
+            saveSettings(config, { hideNoKey: state.hideNoKey })
+            saveConfig(config)
+            applyTierFilter()
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          }
+          return
+        }
+
         // 📖 Profile row: Enter → load the selected profile (apply its settings live)
         if (state.settingsCursor >= profileStartIdx && savedProfiles.length > 0) {
           const profileIdx = state.settingsCursor - profileStartIdx
@@ -4204,6 +4302,48 @@ async function main() {
         // 📖 Profile rows don't respond to Space
         if (state.settingsCursor >= profileStartIdx) return
 
+        // 📖 TUI Settings rows: Space provides alternate action
+        if (state.settingsCursor >= tuiStartIdx && state.settingsCursor < tuiStartIdx + TUI_ROW_COUNT) {
+          const tuiRowOffset = state.settingsCursor - tuiStartIdx
+          const SORT_COL_ORDER = ['rank', 'tier', 'origin', 'model', 'ping', 'avg', 'swe', 'ctx', 'condition', 'verdict', 'stability', 'uptime']
+          if (tuiRowOffset === 0) {
+            // 📖 Sort Column — cycle backwards
+            const curIdx = SORT_COL_ORDER.indexOf(state.sortColumn)
+            state.sortColumn = SORT_COL_ORDER[(curIdx - 1 + SORT_COL_ORDER.length) % SORT_COL_ORDER.length]
+            saveSettings(config, { sortColumn: state.sortColumn, sortAsc: state.sortDirection === 'asc' })
+            saveConfig(config)
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 1) {
+            // 📖 Sort Direction — toggle (same as Enter)
+            state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc'
+            saveSettings(config, { sortColumn: state.sortColumn, sortAsc: state.sortDirection === 'asc' })
+            saveConfig(config)
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 2) {
+            // 📖 Tier Filter — cycle backwards
+            tierFilterMode = (tierFilterMode - 1 + TIER_CYCLE.length) % TIER_CYCLE.length
+            applyTierFilter()
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          } else if (tuiRowOffset === 3) {
+            // 📖 Ping Interval — decrease by 1s (Space = faster)
+            state.pingInterval = Math.max(1000, state.pingInterval - 1000)
+            saveSettings(config, { pingInterval: state.pingInterval })
+            saveConfig(config)
+          } else if (tuiRowOffset === 4) {
+            // 📖 Hide No-Key — toggle (same as Enter)
+            state.hideNoKey = !state.hideNoKey
+            saveSettings(config, { hideNoKey: state.hideNoKey })
+            saveConfig(config)
+            applyTierFilter()
+            const visible = state.results.filter(r => !r.hidden)
+            state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+          }
+          return
+        }
+
         // 📖 Toggle enabled/disabled for selected provider
         const pk = providerKeys[state.settingsCursor]
         if (!state.config.providers) state.config.providers = {}
@@ -4215,8 +4355,8 @@ async function main() {
 
       if (key.name === 't') {
         if (state.settingsCursor === updateRowIdx) return
-        // 📖 Profile rows don't respond to T (test key)
-        if (state.settingsCursor >= profileStartIdx) return
+        // 📖 Profile rows and TUI settings rows don't respond to T (test key)
+        if (state.settingsCursor >= tuiStartIdx) return
 
         // 📖 Test the selected provider's key (fires a real ping)
         const pk = providerKeys[state.settingsCursor]

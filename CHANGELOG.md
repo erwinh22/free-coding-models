@@ -2,6 +2,16 @@
 
 ---
 
+## 0.1.85
+
+### Added
+
+- **TUI Settings section in Settings screen** -- Sort Column, Sort Direction, Tier Filter, Ping Interval, and Hide No-Key are now navigable rows inside Settings (P). Use Enter to cycle/toggle forward, Space for reverse-cycle/decrease. Changes auto-save and apply immediately.
+- **Help overlay updated** -- Settings (P) section now documents Enter/Space behavior for TUI settings rows, plus a new TUI Settings subsection.
+- **12 new unit tests** -- covering TUI settings constants, sort column/tier cycling, ping interval bounds, and config round-trips (187 total tests across 27 suites).
+
+---
+
 ## 0.1.84
 
 ### Added

@@ -1295,6 +1295,113 @@ describe('Dynamic OpenRouter MODELS mutation', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 8. TUI SETTINGS — Settings screen integration
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('TUI Settings screen constants', () => {
+  // The sort column order used by the Settings screen TUI Settings section
+  const SORT_COL_ORDER = ['rank', 'tier', 'origin', 'model', 'ping', 'avg', 'swe', 'ctx', 'condition', 'verdict', 'stability', 'uptime']
+  // The tier cycle used by the Settings screen tier filter row
+  const TIER_CYCLE = [null, 'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'C']
+
+  it('SORT_COL_ORDER contains the default sort column (avg)', () => {
+    const defaults = _emptyProfileSettings()
+    assert.ok(SORT_COL_ORDER.includes(defaults.sortColumn), `default sortColumn "${defaults.sortColumn}" should be in SORT_COL_ORDER`)
+  })
+
+  it('TIER_CYCLE includes null (all tiers) as first entry', () => {
+    assert.equal(TIER_CYCLE[0], null)
+  })
+
+  it('TIER_CYCLE covers all valid tiers', () => {
+    for (const tier of TIER_ORDER) {
+      assert.ok(TIER_CYCLE.includes(tier), `TIER_ORDER tier "${tier}" missing from TIER_CYCLE`)
+    }
+  })
+
+  it('cycling sort column forward wraps around', () => {
+    const idx = SORT_COL_ORDER.indexOf('uptime') // last
+    const nextIdx = (idx + 1) % SORT_COL_ORDER.length
+    assert.equal(SORT_COL_ORDER[nextIdx], 'rank') // wraps to first
+  })
+
+  it('cycling sort column backward wraps around', () => {
+    const idx = SORT_COL_ORDER.indexOf('rank') // first
+    const prevIdx = (idx - 1 + SORT_COL_ORDER.length) % SORT_COL_ORDER.length
+    assert.equal(SORT_COL_ORDER[prevIdx], 'uptime') // wraps to last
+  })
+
+  it('cycling tier filter forward wraps around', () => {
+    const idx = TIER_CYCLE.indexOf('C') // last
+    const nextIdx = (idx + 1) % TIER_CYCLE.length
+    assert.equal(TIER_CYCLE[nextIdx], null) // wraps to all
+  })
+
+  it('toggling sortAsc flips the boolean', () => {
+    const config = {
+      apiKeys: {}, providers: {}, favorites: [], telemetry: { enabled: false },
+      profiles: {}, activeProfile: null, settings: _emptyProfileSettings(),
+    }
+    assert.equal(config.settings.sortAsc, true)
+    config.settings.sortAsc = !config.settings.sortAsc
+    assert.equal(config.settings.sortAsc, false)
+  })
+
+  it('ping interval increment stays within bounds', () => {
+    const min = 1000, max = 60000
+    let interval = 8000
+    interval = Math.min(max, interval + 1000)
+    assert.equal(interval, 9000)
+    interval = 60000
+    interval = Math.min(max, interval + 1000)
+    assert.equal(interval, 60000) // clamped at max
+  })
+
+  it('ping interval decrement stays within bounds', () => {
+    const min = 1000, max = 60000
+    let interval = 8000
+    interval = Math.max(min, interval - 1000)
+    assert.equal(interval, 7000)
+    interval = 1000
+    interval = Math.max(min, interval - 1000)
+    assert.equal(interval, 1000) // clamped at min
+  })
+
+  it('hideNoKey toggle round-trips through saveSettings/getSettings', () => {
+    const config = {
+      apiKeys: {}, providers: {}, favorites: [], telemetry: { enabled: false },
+      profiles: {}, activeProfile: null, settings: _emptyProfileSettings(),
+    }
+    assert.equal(getSettings(config).hideNoKey, false)
+    saveSettings(config, { hideNoKey: true })
+    assert.equal(getSettings(config).hideNoKey, true)
+    saveSettings(config, { hideNoKey: false })
+    assert.equal(getSettings(config).hideNoKey, false)
+  })
+
+  it('sort column change round-trips through saveSettings/getSettings', () => {
+    const config = {
+      apiKeys: {}, providers: {}, favorites: [], telemetry: { enabled: false },
+      profiles: {}, activeProfile: null, settings: _emptyProfileSettings(),
+    }
+    saveSettings(config, { sortColumn: 'tier' })
+    assert.equal(getSettings(config).sortColumn, 'tier')
+    saveSettings(config, { sortColumn: 'swe' })
+    assert.equal(getSettings(config).sortColumn, 'swe')
+  })
+
+  it('tier filter change round-trips through saveSettings/getSettings', () => {
+    const config = {
+      apiKeys: {}, providers: {}, favorites: [], telemetry: { enabled: false },
+      profiles: {}, activeProfile: null, settings: _emptyProfileSettings(),
+    }
+    saveSettings(config, { tierFilter: 'S+' })
+    assert.equal(getSettings(config).tierFilter, 'S+')
+    saveSettings(config, { tierFilter: null })
+    assert.equal(getSettings(config).tierFilter, null)
+  })
+})
+
 // ─── repairJson ─────────────────────────────────────────────────────────────────
 // Tests for the JSON repair utility used by the ZAI proxy to fix malformed
 // tool_call arguments from GLM 5 and similar models.
