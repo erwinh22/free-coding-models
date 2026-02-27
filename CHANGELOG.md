@@ -2,6 +2,17 @@
 
 ---
 
+## 0.1.83
+
+### Added
+
+- **Configurable ping frequency** -- ping interval (W/X keys) now auto-saves to config and restores on next launch. Persists per-profile when a profile is active, otherwise globally.
+- **Configurable default sort** -- sort column and direction auto-save to config on change and restore on next launch. Same per-profile/global persistence logic.
+- **`getSettings()` and `saveSettings()` functions** -- in `lib/config.js`; `getSettings` returns effective settings (profile > global > defaults), `saveSettings` does partial in-memory merge to the correct target.
+- **10 new unit tests** -- covering `getSettings` and `saveSettings` (172 total tests across 26 suites).
+
+---
+
 ## 0.1.82
 
 ### Added

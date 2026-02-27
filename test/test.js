@@ -36,7 +36,8 @@ import {
 } from '../lib/utils.js'
 import {
   _emptyProfileSettings, saveAsProfile, loadProfile, listProfiles,
-  deleteProfile, getActiveProfileName, setActiveProfile
+  deleteProfile, getActiveProfileName, setActiveProfile,
+  getSettings, saveSettings
 } from '../lib/config.js'
 
 // ─── Helper: create a mock model result ──────────────────────────────────────
@@ -970,6 +971,7 @@ describe('config profile functions', () => {
       telemetry: { enabled: false },
       profiles: {},
       activeProfile: null,
+      settings: _emptyProfileSettings(),
     }
   }
 
@@ -1063,6 +1065,113 @@ describe('config profile functions', () => {
     saveAsProfile(config, 'personal', { sortColumn: 'avg' })
     saveAsProfile(config, 'fast', { sortColumn: 'ping' })
     assert.deepEqual(listProfiles(config), ['fast', 'personal', 'work'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📖 7b. CONFIGURABLE SETTINGS — getSettings / saveSettings
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('getSettings and saveSettings', () => {
+  function mockConfig() {
+    return {
+      apiKeys: { nvidia: 'test-key' },
+      providers: { nvidia: true },
+      favorites: [],
+      telemetry: { enabled: false },
+      profiles: {},
+      activeProfile: null,
+      settings: _emptyProfileSettings(),
+    }
+  }
+
+  it('getSettings returns defaults for fresh config', () => {
+    const config = mockConfig()
+    const s = getSettings(config)
+    assert.equal(s.sortColumn, 'avg')
+    assert.equal(s.sortAsc, true)
+    assert.equal(s.pingInterval, 8000)
+    assert.equal(s.tierFilter, null)
+  })
+
+  it('getSettings returns global settings when modified', () => {
+    const config = mockConfig()
+    config.settings.sortColumn = 'ping'
+    config.settings.pingInterval = 5000
+    const s = getSettings(config)
+    assert.equal(s.sortColumn, 'ping')
+    assert.equal(s.pingInterval, 5000)
+  })
+
+  it('getSettings returns profile settings when profile is active', () => {
+    const config = mockConfig()
+    saveAsProfile(config, 'work', { sortColumn: 'swe', sortAsc: false, pingInterval: 3000 })
+    config.activeProfile = 'work'
+    const s = getSettings(config)
+    assert.equal(s.sortColumn, 'swe')
+    assert.equal(s.sortAsc, false)
+    assert.equal(s.pingInterval, 3000)
+  })
+
+  it('getSettings merges partial profile settings with defaults', () => {
+    const config = mockConfig()
+    config.profiles.partial = { apiKeys: {}, favorites: [], settings: { sortColumn: 'rank' } }
+    config.activeProfile = 'partial'
+    const s = getSettings(config)
+    assert.equal(s.sortColumn, 'rank')
+    assert.equal(s.sortAsc, true, 'missing sortAsc should default to true')
+    assert.equal(s.pingInterval, 8000, 'missing pingInterval should default to 8000')
+  })
+
+  it('getSettings falls back to global when profile has no settings', () => {
+    const config = mockConfig()
+    config.profiles.bare = { apiKeys: {}, favorites: [] }
+    config.activeProfile = 'bare'
+    config.settings.sortColumn = 'tier'
+    const s = getSettings(config)
+    assert.equal(s.sortColumn, 'tier', 'should fall back to global settings')
+  })
+
+  it('getSettings handles null/undefined config gracefully', () => {
+    const s1 = getSettings(null)
+    assert.equal(s1.sortColumn, 'avg', 'null config should return defaults')
+    const s2 = getSettings(undefined)
+    assert.equal(s2.sortColumn, 'avg', 'undefined config should return defaults')
+  })
+
+  it('saveSettings saves to global when no profile active', () => {
+    const config = mockConfig()
+    saveSettings(config, { sortColumn: 'rank', pingInterval: 4000 })
+    assert.equal(config.settings.sortColumn, 'rank')
+    assert.equal(config.settings.pingInterval, 4000)
+    assert.equal(config.settings.sortAsc, true, 'untouched field should remain default')
+  })
+
+  it('saveSettings saves to active profile', () => {
+    const config = mockConfig()
+    saveAsProfile(config, 'dev', { sortColumn: 'avg', sortAsc: true, pingInterval: 8000 })
+    config.activeProfile = 'dev'
+    saveSettings(config, { sortColumn: 'swe', pingInterval: 2000 })
+    assert.equal(config.profiles.dev.settings.sortColumn, 'swe')
+    assert.equal(config.profiles.dev.settings.pingInterval, 2000)
+    assert.equal(config.profiles.dev.settings.sortAsc, true, 'untouched field should remain')
+  })
+
+  it('saveSettings creates settings object on profile if missing', () => {
+    const config = mockConfig()
+    config.profiles.bare = { apiKeys: {}, favorites: [] }
+    config.activeProfile = 'bare'
+    saveSettings(config, { pingInterval: 6000 })
+    assert.equal(config.profiles.bare.settings.pingInterval, 6000)
+  })
+
+  it('saveSettings only updates provided keys (partial merge)', () => {
+    const config = mockConfig()
+    config.settings.sortColumn = 'tier'
+    config.settings.sortAsc = false
+    saveSettings(config, { pingInterval: 12000 })
+    assert.equal(config.settings.sortColumn, 'tier', 'should not reset sortColumn')
+    assert.equal(config.settings.sortAsc, false, 'should not reset sortAsc')
+    assert.equal(config.settings.pingInterval, 12000)
   })
 })
 

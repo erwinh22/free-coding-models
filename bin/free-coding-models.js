@@ -96,7 +96,7 @@ import { request as httpsRequest } from 'https'
 import { MODELS, sources } from '../sources.js'
 import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
 import { getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP, scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS, formatCtxWindow, labelFromId, repairJson, repairToolCallArgs } from '../lib/utils.js'
-import { loadConfig, saveConfig, getApiKey, isProviderEnabled, saveAsProfile, loadProfile, listProfiles, deleteProfile, getActiveProfileName, setActiveProfile, _emptyProfileSettings } from '../lib/config.js'
+import { loadConfig, saveConfig, getApiKey, isProviderEnabled, saveAsProfile, loadProfile, listProfiles, deleteProfile, getActiveProfileName, setActiveProfile, _emptyProfileSettings, getSettings, saveSettings } from '../lib/config.js'
 
 const require = createRequire(import.meta.url)
 const readline = require('readline')
@@ -2904,17 +2904,19 @@ async function main() {
   // 📖 Add interactive selection state - cursor index and user's choice
   // 📖 sortColumn: 'rank'|'tier'|'origin'|'model'|'ping'|'avg'|'status'|'verdict'|'uptime'
   // 📖 sortDirection: 'asc' (default) or 'desc'
-  // 📖 pingInterval: current interval in ms (default 2000, adjustable with W/X keys)
+  // 📖 pingInterval: current interval in ms (default 3000, adjustable with W/X keys)
   // 📖 tierFilter: current tier filter letter (null = all, 'S' = S+/S, 'A' = A+/A/A-, etc.)
+  // 📖 Load persisted settings from config (global or active profile)
+  const savedSettings = getSettings(config)
   const state = {
     results,
     pendingPings: 0,
     frame: 0,
     cursor: 0,
     selectedModel: null,
-    sortColumn: 'avg',
-    sortDirection: 'asc',
-    pingInterval: PING_INTERVAL,  // 📖 Track current interval for W/X keys
+    sortColumn: savedSettings.sortColumn || 'avg',
+    sortDirection: savedSettings.sortAsc === false ? 'desc' : 'asc',
+    pingInterval: savedSettings.pingInterval || PING_INTERVAL,
     lastPingTime: Date.now(),     // 📖 Track when last ping cycle started
     mode,                         // 📖 'opencode' or 'openclaw' — controls Enter action
     scrollOffset: 0,              // 📖 First visible model index in viewport
@@ -4343,6 +4345,9 @@ async function main() {
         state.sortColumn = col
         state.sortDirection = 'asc'
       }
+      // 📖 Auto-save sort preferences to config
+      saveSettings(config, { sortColumn: state.sortColumn, sortAsc: state.sortDirection === 'asc' })
+      saveConfig(config)
       // 📖 Recompute visible sorted list and reset cursor to top to avoid stale index
       const visible = state.results.filter(r => !r.hidden)
       state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
@@ -4396,11 +4401,15 @@ async function main() {
     }
 
     // 📖 Interval adjustment keys: W=decrease (faster), X=increase (slower)
-    // 📖 Minimum 1s, maximum 60s
+    // 📖 Minimum 1s, maximum 60s. Changes are auto-saved to config.
     if (key.name === 'w') {
       state.pingInterval = Math.max(1000, state.pingInterval - 1000)
+      saveSettings(config, { pingInterval: state.pingInterval })
+      saveConfig(config)
     } else if (key.name === 'x') {
       state.pingInterval = Math.min(60000, state.pingInterval + 1000)
+      saveSettings(config, { pingInterval: state.pingInterval })
+      saveConfig(config)
     }
 
     // 📖 Tier toggle key: T = cycle through each individual tier (All → S+ → S → A+ → A → A- → B+ → B → C → All)
@@ -4440,11 +4449,6 @@ async function main() {
       const currentIndex = modeOrder.indexOf(state.mode)
       const nextIndex = (currentIndex + 1) % modeOrder.length
       state.mode = modeOrder[nextIndex]
-      return
-    }
-
-    if (key.name === 'x') {
-      state.pingInterval = Math.min(60000, state.pingInterval + 1000)
       return
     }
 
