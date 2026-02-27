@@ -859,7 +859,7 @@ function sortResultsWithPinnedFavorites(results, sortColumn, sortDirection) {
 }
 
 // 📖 renderTable: mode param controls footer hint text (opencode vs openclaw)
-function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0, originFilterMode = 0, activeProfile = null, profileSaveMode = false, profileSaveBuffer = '') {
+function renderTable(results, pendingPings, frame, cursor = null, sortColumn = 'avg', sortDirection = 'asc', pingInterval = PING_INTERVAL, lastPingTime = Date.now(), mode = 'opencode', tierFilterMode = 0, scrollOffset = 0, terminalRows = 0, originFilterMode = 0, activeProfile = null, profileSaveMode = false, profileSaveBuffer = '', hideNoKey = false) {
   // 📖 Filter out hidden models for display
   const visibleResults = results.filter(r => !r.hidden)
 
@@ -917,6 +917,9 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
     profileBadge = chalk.bold.rgb(200, 150, 255)(` [📋 ${activeProfile}]`)
   }
 
+  // 📖 Hide no-key badge — shown when D toggle is active (hiding providers without API keys)
+  const noKeyBadge = hideNoKey ? chalk.bold.rgb(255, 200, 50)(` [🔑 Key only]`) : ''
+
   // 📖 Column widths (generous spacing with margins)
   const W_RANK = 6
   const W_TIER = 6
@@ -935,7 +938,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   const sorted = sortResultsWithPinnedFavorites(visibleResults, sortColumn, sortDirection)
 
   const lines = [
-    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}${originBadge}${profileBadge}   ` +
+    `  ${chalk.bold('⚡ Free Coding Models')} ${chalk.dim('v' + LOCAL_VERSION)}${modeBadge}${modeHint}${tierBadge}${originBadge}${profileBadge}${noKeyBadge}   ` +
       chalk.greenBright(`✅ ${up}`) + chalk.dim(' up  ') +
       chalk.yellow(`⏳ ${timeout}`) + chalk.dim(' timeout  ') +
       chalk.red(`❌ ${down}`) + chalk.dim(' down  ') +
@@ -1255,7 +1258,7 @@ function renderTable(results, pendingPings, frame, cursor = null, sortColumn = '
   // 📖 Line 1: core navigation + sorting shortcuts
   lines.push(chalk.dim(`  ↑↓ Navigate  •  `) + actionHint + chalk.dim(`  •  `) + chalk.yellow('F') + chalk.dim(` Favorite  •  R/Y/O/M/L/A/S/C/H/V/B/U Sort  •  `) + chalk.yellow('T') + chalk.dim(` Tier  •  `) + chalk.yellow('N') + chalk.dim(` Origin  •  W↓/X↑ (${intervalSec}s)  •  `) + chalk.rgb(255, 100, 50).bold('Z') + chalk.dim(` Mode  •  `) + chalk.yellow('P') + chalk.dim(` Settings  •  `) + chalk.rgb(0, 255, 80).bold('K') + chalk.dim(` Help`))
   // 📖 Line 2: profiles, recommend, feature request, bug report, and extended hints — gives visibility to less-obvious features
-  lines.push(chalk.dim(`  `) + chalk.rgb(200, 150, 255).bold('⇧P') + chalk.dim(` Cycle profile  •  `) + chalk.rgb(200, 150, 255).bold('⇧S') + chalk.dim(` Save profile  •  `) + chalk.rgb(0, 200, 180).bold('Q') + chalk.dim(` Smart Recommend  •  `) + chalk.rgb(57, 255, 20).bold('J') + chalk.dim(` Request feature  •  `) + chalk.rgb(255, 87, 51).bold('I') + chalk.dim(` Report bug  •  `) + chalk.yellow('E') + chalk.dim(`/`) + chalk.yellow('D') + chalk.dim(` Tier ↑↓  •  `) + chalk.yellow('Esc') + chalk.dim(` Close overlay  •  Ctrl+C Exit`))
+  lines.push(chalk.dim(`  `) + chalk.rgb(200, 150, 255).bold('⇧P') + chalk.dim(` Cycle profile  •  `) + chalk.rgb(200, 150, 255).bold('⇧S') + chalk.dim(` Save profile  •  `) + chalk.rgb(0, 200, 180).bold('Q') + chalk.dim(` Smart Recommend  •  `) + chalk.rgb(57, 255, 20).bold('J') + chalk.dim(` Request feature  •  `) + chalk.rgb(255, 87, 51).bold('I') + chalk.dim(` Report bug  •  `) + chalk.yellow('D') + chalk.dim(` Hide no-key  •  `) + chalk.yellow('Esc') + chalk.dim(` Close overlay  •  Ctrl+C Exit`))
   lines.push('')
   lines.push(
     chalk.rgb(255, 150, 200)('  Made with 💖 & ☕ by \x1b]8;;https://github.com/vava-nessa\x1b\\vava-nessa\x1b]8;;\x1b\\') +
@@ -2917,6 +2920,7 @@ async function main() {
     sortColumn: savedSettings.sortColumn || 'avg',
     sortDirection: savedSettings.sortAsc === false ? 'desc' : 'asc',
     pingInterval: savedSettings.pingInterval || PING_INTERVAL,
+    hideNoKey: savedSettings.hideNoKey ?? false, // 📖 true = hide models whose provider has no API key
     lastPingTime: Date.now(),     // 📖 Track when last ping cycle started
     mode,                         // 📖 'opencode' or 'openclaw' — controls Enter action
     scrollOffset: 0,              // 📖 First visible model index in viewport
@@ -3000,10 +3004,11 @@ async function main() {
         r.hidden = false
         return
       }
-      // 📖 Apply both tier and origin filters — model is hidden if it fails either
+      // 📖 Apply tier, origin, and no-key filters — model is hidden if it fails any
       const tierHide = activeTier !== null && r.tier !== activeTier
       const originHide = activeOrigin !== null && r.providerKey !== activeOrigin
-      r.hidden = tierHide || originHide
+      const noKeyHide = state.hideNoKey && !getApiKey(state.config, r.providerKey)
+      r.hidden = tierHide || originHide || noKeyHide
     })
     return state.results
   }
@@ -3227,6 +3232,7 @@ async function main() {
     lines.push(`  ${chalk.yellow('Shift+S')}  Save current config as a named profile  ${chalk.dim('(inline prompt — type name + Enter)')}`)
     lines.push(`             ${chalk.dim('Profiles store: favorites, sort, tier filter, ping interval, API keys.')}`)
     lines.push(`             ${chalk.dim('Use --profile <name> to load a profile on startup.')}`)
+    lines.push(`  ${chalk.yellow('D')}  Hide no-key providers  ${chalk.dim('(toggle hiding models whose provider has no API key — persisted)')}`)
     lines.push(`  ${chalk.yellow('K')} / ${chalk.yellow('Esc')}  Show/hide this help`)
     lines.push(`  ${chalk.yellow('Ctrl+C')}  Exit`)
     lines.push('')
@@ -3768,6 +3774,7 @@ async function main() {
             sortColumn: state.sortColumn,
             sortAsc: state.sortDirection === 'asc',
             pingInterval: state.pingInterval,
+            hideNoKey: state.hideNoKey,
           })
           setActiveProfile(state.config, name)
           state.activeProfile = name
@@ -4167,6 +4174,7 @@ async function main() {
               state.sortColumn = settings.sortColumn || 'avg'
               state.sortDirection = settings.sortAsc ? 'asc' : 'desc'
               state.pingInterval = settings.pingInterval || PING_INTERVAL
+              state.hideNoKey = settings.hideNoKey ?? false
               if (settings.tierFilter) {
                 const tierIdx = TIER_CYCLE.indexOf(settings.tierFilter)
                 if (tierIdx >= 0) tierFilterMode = tierIdx
@@ -4279,6 +4287,7 @@ async function main() {
           sortColumn: state.sortColumn,
           sortAsc: state.sortDirection === 'asc',
           pingInterval: state.pingInterval,
+          hideNoKey: state.hideNoKey,
         })
         setActiveProfile(state.config, 'default')
         state.activeProfile = 'default'
@@ -4300,6 +4309,7 @@ async function main() {
             state.sortColumn = settings.sortColumn || 'avg'
             state.sortDirection = settings.sortAsc ? 'asc' : 'desc'
             state.pingInterval = settings.pingInterval || PING_INTERVAL
+            state.hideNoKey = settings.hideNoKey ?? false
             if (settings.tierFilter) {
               const tierIdx = TIER_CYCLE.indexOf(settings.tierFilter)
               if (tierIdx >= 0) tierFilterMode = tierIdx
@@ -4436,6 +4446,19 @@ async function main() {
       return
     }
 
+    // 📖 Hide no-key toggle: D = toggle hiding models whose provider has no API key set
+    if (key.name === 'd') {
+      state.hideNoKey = !state.hideNoKey
+      saveSettings(config, { hideNoKey: state.hideNoKey })
+      saveConfig(config)
+      applyTierFilter()
+      const visible = state.results.filter(r => !r.hidden)
+      state.visibleSorted = sortResultsWithPinnedFavorites(visible, state.sortColumn, state.sortDirection)
+      state.cursor = 0
+      state.scrollOffset = 0
+      return
+    }
+
     // 📖 Help overlay key: K = toggle help overlay
     if (key.name === 'k') {
       state.helpVisible = !state.helpVisible
@@ -4550,7 +4573,7 @@ async function main() {
             ? renderBugReport()
             : state.helpVisible
               ? renderHelp()
-              : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer)
+              : renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer, state.hideNoKey)
     process.stdout.write(ALT_HOME + content)
   }, Math.round(1000 / FPS))
 
@@ -4558,7 +4581,7 @@ async function main() {
   const initialVisible = state.results.filter(r => !r.hidden)
   state.visibleSorted = sortResultsWithPinnedFavorites(initialVisible, state.sortColumn, state.sortDirection)
 
-  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer))
+  process.stdout.write(ALT_HOME + renderTable(state.results, state.pendingPings, state.frame, state.cursor, state.sortColumn, state.sortDirection, state.pingInterval, state.lastPingTime, state.mode, tierFilterMode, state.scrollOffset, state.terminalRows, originFilterMode, state.activeProfile, state.profileSaveMode, state.profileSaveBuffer, state.hideNoKey))
 
   // 📖 If --recommend was passed, auto-open the Smart Recommend overlay on start
   if (cliArgs.recommendMode) {

@@ -981,6 +981,7 @@ describe('config profile functions', () => {
     assert.equal(settings.sortColumn, 'avg')
     assert.equal(settings.sortAsc, true)
     assert.equal(settings.pingInterval, 8000)
+    assert.equal(settings.hideNoKey, false)
   })
 
   it('listProfiles returns empty array for fresh config', () => {
@@ -1066,6 +1067,21 @@ describe('config profile functions', () => {
     saveAsProfile(config, 'fast', { sortColumn: 'ping' })
     assert.deepEqual(listProfiles(config), ['fast', 'personal', 'work'])
   })
+
+  it('saveAsProfile + loadProfile round-trips hideNoKey', () => {
+    const config = mockConfig()
+    saveAsProfile(config, 'hidden', { hideNoKey: true, sortColumn: 'avg' })
+    const settings = loadProfile(config, 'hidden')
+    assert.equal(settings.hideNoKey, true)
+  })
+
+  it('loadProfile defaults hideNoKey to false for old profiles', () => {
+    const config = mockConfig()
+    // 📖 Simulate a profile saved before hideNoKey existed
+    config.profiles.legacy = { apiKeys: {}, favorites: [], settings: { sortColumn: 'rank' } }
+    const settings = loadProfile(config, 'legacy')
+    assert.equal(settings.hideNoKey, false, 'missing hideNoKey should default to false')
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1091,6 +1107,7 @@ describe('getSettings and saveSettings', () => {
     assert.equal(s.sortAsc, true)
     assert.equal(s.pingInterval, 8000)
     assert.equal(s.tierFilter, null)
+    assert.equal(s.hideNoKey, false)
   })
 
   it('getSettings returns global settings when modified', () => {
@@ -1120,6 +1137,7 @@ describe('getSettings and saveSettings', () => {
     assert.equal(s.sortColumn, 'rank')
     assert.equal(s.sortAsc, true, 'missing sortAsc should default to true')
     assert.equal(s.pingInterval, 8000, 'missing pingInterval should default to 8000')
+    assert.equal(s.hideNoKey, false, 'missing hideNoKey should default to false')
   })
 
   it('getSettings falls back to global when profile has no settings', () => {
@@ -1172,6 +1190,14 @@ describe('getSettings and saveSettings', () => {
     assert.equal(config.settings.sortColumn, 'tier', 'should not reset sortColumn')
     assert.equal(config.settings.sortAsc, false, 'should not reset sortAsc')
     assert.equal(config.settings.pingInterval, 12000)
+  })
+
+  it('saveSettings persists hideNoKey flag', () => {
+    const config = mockConfig()
+    saveSettings(config, { hideNoKey: true })
+    assert.equal(config.settings.hideNoKey, true)
+    const s = getSettings(config)
+    assert.equal(s.hideNoKey, true, 'getSettings should read back saved hideNoKey')
   })
 })
 

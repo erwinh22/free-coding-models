@@ -2,6 +2,15 @@
 
 ---
 
+## 0.1.84
+
+### Added
+
+- **Hide providers without API key** -- press `D` to toggle hiding models whose provider has no API key configured. Header shows `[Key only]` badge when active. Setting persists per-profile and across restarts.
+- **5 new unit tests** -- covering `hideNoKey` in `_emptyProfileSettings`, `getSettings` defaults, partial merge, `saveSettings` round-trip, and `saveAsProfile`/`loadProfile` round-trip (175 total tests across 26 suites).
+
+---
+
 ## 0.1.83
 
 ### Added
