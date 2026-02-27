@@ -2,11 +2,31 @@
 
 ---
 
+## 0.1.81
+
+### Added
+
+- **Dynamic OpenRouter free model discovery** -- fetches live free models from OpenRouter API at startup; replaces static list with fresh data so new free models appear automatically without code updates. Falls back to cached static list with a yellow warning on network failure.
+- **`formatCtxWindow` and `labelFromId` utility functions** -- extracted to `lib/utils.js` for testability; used by dynamic OpenRouter discovery to convert API data to display format.
+- **16 new unit tests** -- covering `formatCtxWindow`, `labelFromId`, and MODELS array mutation logic (147 total tests across 23 suites).
+- **NVIDIA NIM auto-configuration** -- selecting a NIM model in OpenCode now auto-creates the nvidia provider block in `opencode.json` if missing, eliminating the manual install prompt.
+
+### Fixed
+
+- **Auto-update infinite loop** -- when running from source (dev mode with `.git` directory), auto-update is now skipped to prevent the restart loop where LOCAL_VERSION never changes.
+- **NVIDIA model double-prefix bug** -- model IDs in `sources.js` already include `nvidia/` prefix; `getOpenCodeModelId()` now strips it for nvidia provider (like it does for zai), preventing `nvidia/nvidia/...` in OpenCode config.
+
+### Removed
+
+- **`checkNvidiaNimConfig()` function** -- replaced by auto-create pattern; dead code removed.
+
+---
+
 ## 0.1.80
 
 ### Fixed
 
-- **Settings menu crash** — fixed `ReferenceError: telemetryRowIdx is not defined` error when opening Settings (P key). Removed lingering reference to the deleted telemetry row index.
+- **Settings menu crash** -- fixed `ReferenceError: telemetryRowIdx is not defined` error when opening Settings (P key). Removed lingering reference to the deleted telemetry row index.
 
 ---
 
@@ -14,8 +34,8 @@
 
 ### Added
 
-- **Alibaba Cloud (DashScope) provider** — added support for Qwen3-Coder models via Alibaba Cloud Model Studio. 8 new models including Qwen3 Coder Plus (69.6% SWE-bench), Qwen3 Coder Max (67.0%), Qwen3 Coder Next (65.0%), Qwen3 Coder 480B (70.6%), Qwen3 235B (70.0%), Qwen3 80B Instruct (65.0%), Qwen3 32B (50.0%), and Qwen2.5 Coder 32B (46.0%). OpenAI-compatible API with 1M free tokens per model (Singapore region, 90 days). Use `DASHSCOPE_API_KEY` environment variable or configure via Settings (P key).
-- **Model count increased** — now supporting 158 models across 20 providers (up from 150 models / 19 providers).
+- **Alibaba Cloud (DashScope) provider** -- added support for Qwen3-Coder models via Alibaba Cloud Model Studio. 8 new models including Qwen3 Coder Plus (69.6% SWE-bench), Qwen3 Coder Max (67.0%), Qwen3 Coder Next (65.0%), Qwen3 Coder 480B (70.6%), Qwen3 235B (70.0%), Qwen3 80B Instruct (65.0%), Qwen3 32B (50.0%), and Qwen2.5 Coder 32B (46.0%). OpenAI-compatible API with 1M free tokens per model (Singapore region, 90 days). Use `DASHSCOPE_API_KEY` environment variable or configure via Settings (P key).
+- **Model count increased** -- now supporting 158 models across 20 providers (up from 150 models / 19 providers).
 
 ---
 

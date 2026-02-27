@@ -30,7 +30,8 @@ import {
   getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore,
   sortResults, filterByTier, findBestModel, parseArgs,
   TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP,
-  scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS
+  scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS,
+  formatCtxWindow, labelFromId
 } from '../lib/utils.js'
 import {
   _emptyProfileSettings, saveAsProfile, loadProfile, listProfiles,
@@ -1061,5 +1062,99 @@ describe('config profile functions', () => {
     saveAsProfile(config, 'personal', { sortColumn: 'avg' })
     saveAsProfile(config, 'fast', { sortColumn: 'ping' })
     assert.deepEqual(listProfiles(config), ['fast', 'personal', 'work'])
+  })
+})
+
+// ─── formatCtxWindow ─────────────────────────────────────────────────────────
+// 📖 Tests for context window number-to-string conversion used by dynamic OpenRouter discovery
+describe('formatCtxWindow', () => {
+  it('converts 128000 to 128k', () => {
+    assert.equal(formatCtxWindow(128000), '128k')
+  })
+
+  it('converts 256000 to 256k', () => {
+    assert.equal(formatCtxWindow(256000), '256k')
+  })
+
+  it('converts 1048576 to 1M', () => {
+    assert.equal(formatCtxWindow(1048576), '1M')
+  })
+
+  it('converts 2000000 to 2M', () => {
+    assert.equal(formatCtxWindow(2000000), '2M')
+  })
+
+  it('converts 32768 to 33k (rounds)', () => {
+    assert.equal(formatCtxWindow(32768), '33k')
+  })
+
+  it('returns 128k for zero', () => {
+    assert.equal(formatCtxWindow(0), '128k')
+  })
+
+  it('returns 128k for negative', () => {
+    assert.equal(formatCtxWindow(-1), '128k')
+  })
+
+  it('returns 128k for non-number', () => {
+    assert.equal(formatCtxWindow(null), '128k')
+    assert.equal(formatCtxWindow(undefined), '128k')
+    assert.equal(formatCtxWindow('128k'), '128k')
+  })
+})
+
+// ─── labelFromId ─────────────────────────────────────────────────────────────
+// 📖 Tests for OpenRouter model ID to human-readable label conversion
+describe('labelFromId', () => {
+  it('strips :free suffix and org prefix', () => {
+    assert.equal(labelFromId('qwen/qwen3-coder:free'), 'Qwen3 Coder')
+  })
+
+  it('handles deep nested org paths', () => {
+    assert.equal(labelFromId('meta-llama/llama-3.3-70b-instruct:free'), 'Llama 3.3 70b Instruct')
+  })
+
+  it('handles underscore-separated names', () => {
+    assert.equal(labelFromId('org/model_name_v2:free'), 'Model Name V2')
+  })
+
+  it('handles ID without org prefix', () => {
+    assert.equal(labelFromId('mimo-v2-flash:free'), 'Mimo V2 Flash')
+  })
+
+  it('handles ID without :free suffix', () => {
+    assert.equal(labelFromId('qwen/qwen3-coder'), 'Qwen3 Coder')
+  })
+})
+
+// ─── Dynamic OpenRouter model discovery (MODELS mutation) ────────────────────
+// 📖 Tests that verify the MODELS array mutation logic used by fetchOpenRouterFreeModels
+describe('Dynamic OpenRouter MODELS mutation', () => {
+  it('MODELS array contains openrouter entries from static sources', () => {
+    const orEntries = MODELS.filter(m => m[5] === 'openrouter')
+    assert.ok(orEntries.length > 0, 'Should have at least one openrouter entry in MODELS')
+  })
+
+  it('all openrouter entries have valid tuple format [id, label, tier, swe, ctx, providerKey]', () => {
+    const orEntries = MODELS.filter(m => m[5] === 'openrouter')
+    for (const entry of orEntries) {
+      assert.equal(entry.length, 6, `Entry ${entry[0]} should have 6 elements`)
+      assert.equal(typeof entry[0], 'string', 'modelId should be string')
+      assert.equal(typeof entry[1], 'string', 'label should be string')
+      assert.ok(TIER_ORDER.includes(entry[2]), `tier ${entry[2]} should be valid`)
+      assert.match(entry[3], /^\d+\.\d+%$/, 'sweScore should match N.N% format')
+      assert.match(entry[4], /^\d+[kM]$/, 'ctx should match Nk or NM format')
+      assert.equal(entry[5], 'openrouter', 'providerKey should be openrouter')
+    }
+  })
+
+  it('MODELS array is mutable (can splice and push)', () => {
+    const originalLength = MODELS.length
+    // Push a test entry
+    MODELS.push(['test/model:free', 'Test Model', 'B', '25.0%', '128k', 'openrouter'])
+    assert.equal(MODELS.length, originalLength + 1)
+    // Remove it
+    MODELS.splice(MODELS.length - 1, 1)
+    assert.equal(MODELS.length, originalLength)
   })
 })
