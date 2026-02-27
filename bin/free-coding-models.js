@@ -95,7 +95,7 @@ import { createServer as createHttpServer } from 'http'
 import { request as httpsRequest } from 'https'
 import { MODELS, sources } from '../sources.js'
 import { patchOpenClawModelsJson } from '../patch-openclaw-models.js'
-import { getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP, scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS, formatCtxWindow, labelFromId } from '../lib/utils.js'
+import { getAvg, getVerdict, getUptime, getP95, getJitter, getStabilityScore, sortResults, filterByTier, findBestModel, parseArgs, TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP, scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS, formatCtxWindow, labelFromId, repairJson, repairToolCallArgs } from '../lib/utils.js'
 import { loadConfig, saveConfig, getApiKey, isProviderEnabled, saveAsProfile, loadProfile, listProfiles, deleteProfile, getActiveProfileName, setActiveProfile, _emptyProfileSettings } from '../lib/config.js'
 
 const require = createRequire(import.meta.url)
@@ -1637,21 +1637,22 @@ function saveOpenCodeConfig(config) {
 async function createZaiProxy(apiKey) {
   const server = createHttpServer((req, res) => {
     let targetPath = req.url
-    // 📖 Rewrite /v1/* → /api/coding/paas/v4/*
+    // Rewrite /v1/* -> /api/coding/paas/v4/*
     if (targetPath.startsWith('/v1/')) {
       targetPath = '/api/coding/paas/v4/' + targetPath.slice(4)
     } else if (targetPath.startsWith('/v1')) {
       targetPath = '/api/coding/paas/v4' + targetPath.slice(3)
     } else {
-      // 📖 Non /v1 paths (e.g. /api/v0/ health checks) — reject
+      // Non /v1 paths (e.g. /api/v0/ health checks) -- reject
       res.writeHead(404)
       res.end()
       return
     }
     const headers = { ...req.headers, host: 'api.z.ai' }
     if (apiKey) headers.authorization = `Bearer ${apiKey}`
-    // 📖 Remove transfer-encoding to avoid chunked encoding issues with https.request
+    // Remove transfer-encoding to avoid chunked encoding issues with https.request
     delete headers['transfer-encoding']
+    const isChatCompletions = targetPath.includes('/chat/completions') && req.method === 'POST'
     const proxyReq = httpsRequest({
       hostname: 'api.z.ai',
       port: 443,
@@ -1659,8 +1660,125 @@ async function createZaiProxy(apiKey) {
       method: req.method,
       headers,
     }, (proxyRes) => {
-      res.writeHead(proxyRes.statusCode, proxyRes.headers)
-      proxyRes.pipe(res)
+      if (!isChatCompletions) {
+        // Non-chat endpoints (e.g. /v1/models) -- pass through as-is
+        res.writeHead(proxyRes.statusCode, proxyRes.headers)
+        proxyRes.pipe(res)
+        return
+      }
+      const contentType = proxyRes.headers['content-type'] || ''
+      const isSSE = contentType.includes('text/event-stream')
+
+      if (isSSE) {
+        // Streaming SSE: buffer all chunks, repair tool_call arguments at end, re-emit
+        const chunks = []
+        proxyRes.on('data', (chunk) => chunks.push(chunk))
+        proxyRes.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const lines = body.split('\n')
+          // Accumulate tool_call argument deltas per index
+          const argBuffers = {}
+          // Track which SSE data lines belong to tool_call delta chunks
+          const sseDataLines = []
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) { sseDataLines.push({ raw: line, parsed: null }); continue }
+            const payload = line.slice(6).trim()
+            if (payload === '[DONE]') { sseDataLines.push({ raw: line, parsed: null, isDone: true }); continue }
+            try {
+              const obj = JSON.parse(payload)
+              sseDataLines.push({ raw: line, parsed: obj })
+              // Buffer tool_call argument deltas
+              const delta = obj?.choices?.[0]?.delta
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0
+                  if (tc.function?.arguments) {
+                    if (!argBuffers[idx]) argBuffers[idx] = ''
+                    argBuffers[idx] += tc.function.arguments
+                  }
+                }
+              }
+            } catch {
+              sseDataLines.push({ raw: line, parsed: null })
+            }
+          }
+          // If tool_call arguments were accumulated, repair them and inject corrected
+          // final arguments into the last delta chunk for each tool_call index
+          if (Object.keys(argBuffers).length > 0) {
+            const repairedArgs = {}
+            let anyRepaired = false
+            for (const [idx, assembled] of Object.entries(argBuffers)) {
+              const repaired = repairJson(assembled)
+              repairedArgs[idx] = repaired
+              if (repaired !== assembled) anyRepaired = true
+            }
+            if (anyRepaired) {
+              // Walk backwards to find the last delta chunk per tool_call index
+              // and replace its arguments with the full repaired string
+              const fixedIndices = new Set()
+              for (let i = sseDataLines.length - 1; i >= 0; i--) {
+                const entry = sseDataLines[i]
+                if (!entry.parsed) continue
+                const delta = entry.parsed?.choices?.[0]?.delta
+                if (!delta?.tool_calls) continue
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0
+                  if (fixedIndices.has(idx)) continue
+                  if (repairedArgs[idx] !== undefined && tc.function?.arguments) {
+                    tc.function.arguments = repairedArgs[idx]
+                    fixedIndices.add(idx)
+                  }
+                }
+                entry.raw = 'data: ' + JSON.stringify(entry.parsed)
+                if (fixedIndices.size >= Object.keys(repairedArgs).length) break
+              }
+              // Clear arguments from earlier delta chunks for repaired indices
+              // so the SDK doesn't double-accumulate
+              for (let i = 0; i < sseDataLines.length; i++) {
+                const entry = sseDataLines[i]
+                if (!entry.parsed) continue
+                const delta = entry.parsed?.choices?.[0]?.delta
+                if (!delta?.tool_calls) continue
+                let changed = false
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0
+                  if (fixedIndices.has(idx) && tc.function?.arguments) {
+                    // Check if this is the line we already fixed (has the full repaired args)
+                    if (tc.function.arguments === repairedArgs[idx]) continue
+                    tc.function.arguments = ''
+                    changed = true
+                  }
+                }
+                if (changed) entry.raw = 'data: ' + JSON.stringify(entry.parsed)
+              }
+            }
+          }
+          // Re-emit all SSE lines
+          // Remove content-length since we may have changed the body size
+          const responseHeaders = { ...proxyRes.headers }
+          delete responseHeaders['content-length']
+          res.writeHead(proxyRes.statusCode, responseHeaders)
+          res.end(sseDataLines.map(e => e.raw).join('\n'))
+        })
+        proxyRes.on('error', () => { res.writeHead(502); res.end() })
+      } else {
+        // Non-streaming JSON: buffer, repair, forward
+        const chunks = []
+        proxyRes.on('data', (chunk) => chunks.push(chunk))
+        proxyRes.on('end', () => {
+          let body = Buffer.concat(chunks).toString('utf8')
+          try {
+            const data = JSON.parse(body)
+            repairToolCallArgs(data)
+            body = JSON.stringify(data)
+          } catch { /* not valid JSON, pass through as-is */ }
+          const responseHeaders = { ...proxyRes.headers }
+          responseHeaders['content-length'] = Buffer.byteLength(body)
+          res.writeHead(proxyRes.statusCode, responseHeaders)
+          res.end(body)
+        })
+        proxyRes.on('error', () => { res.writeHead(502); res.end() })
+      }
     })
     proxyReq.on('error', () => { res.writeHead(502); res.end() })
     req.pipe(proxyReq)

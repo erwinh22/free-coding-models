@@ -2,6 +2,17 @@
 
 ---
 
+## 0.1.82
+
+### Added
+
+- **ZAI proxy JSON repair for tool calls** -- intercepts responses from GLM 5 (and similar models) that produce malformed JSON in `tool_calls[].function.arguments` (e.g. trailing period, missing closing braces). Repairs JSON before forwarding to the AI SDK, preventing tool call failures.
+- **`repairJson()` utility** -- best-effort JSON repair function in `lib/utils.js`: fixes trailing periods, unclosed strings, missing braces/brackets, and trailing commas.
+- **`repairToolCallArgs()` utility** -- walks OpenAI-format chat completion responses and applies `repairJson()` to each tool call argument string.
+- **15 new unit tests** -- covering `repairJson` (11 tests) and `repairToolCallArgs` (4 tests); 162 total tests across 25 suites.
+
+---
+
 ## 0.1.81
 
 ### Added

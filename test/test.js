@@ -31,7 +31,8 @@ import {
   sortResults, filterByTier, findBestModel, parseArgs,
   TIER_ORDER, VERDICT_ORDER, TIER_LETTER_MAP,
   scoreModelForTask, getTopRecommendations, TASK_TYPES, PRIORITY_TYPES, CONTEXT_BUDGETS,
-  formatCtxWindow, labelFromId
+  formatCtxWindow, labelFromId,
+  repairJson, repairToolCallArgs
 } from '../lib/utils.js'
 import {
   _emptyProfileSettings, saveAsProfile, loadProfile, listProfiles,
@@ -1156,5 +1157,129 @@ describe('Dynamic OpenRouter MODELS mutation', () => {
     // Remove it
     MODELS.splice(MODELS.length - 1, 1)
     assert.equal(MODELS.length, originalLength)
+  })
+})
+
+// ─── repairJson ─────────────────────────────────────────────────────────────────
+// Tests for the JSON repair utility used by the ZAI proxy to fix malformed
+// tool_call arguments from GLM 5 and similar models.
+describe('repairJson', () => {
+  it('returns valid JSON unchanged', () => {
+    assert.equal(repairJson('{"a":1}'), '{"a":1}')
+  })
+
+  it('returns empty/null input unchanged', () => {
+    assert.equal(repairJson(''), '')
+    assert.equal(repairJson(null), null)
+    assert.equal(repairJson(undefined), undefined)
+  })
+
+  it('fixes trailing period (GLM 5 signature bug)', () => {
+    const input = '{"filePath":"D:\\\\test\\\\README.md".'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.equal(JSON.parse(result).filePath, 'D:\\test\\README.md')
+  })
+
+  it('fixes missing closing brace', () => {
+    const input = '{"key":"value"'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.equal(JSON.parse(result).key, 'value')
+  })
+
+  it('fixes missing closing bracket', () => {
+    const input = '["a","b"'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.deepEqual(JSON.parse(result), ['a', 'b'])
+  })
+
+  it('fixes unclosed string', () => {
+    const input = '{"key":"value'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+  })
+
+  it('fixes trailing comma before closing brace', () => {
+    const input = '{"a":1,"b":2,'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.equal(JSON.parse(result).a, 1)
+  })
+
+  it('handles nested objects with missing braces', () => {
+    const input = '{"a":{"b":1}'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+  })
+
+  it('handles complex GLM 5 tool call (real-world)', () => {
+    const input = '{"filePath":"D:\\\\ApplicationDevelopment\\\\Tools\\\\free-coding-models\\\\README.md","startLine":1,"endLine":50.'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    const parsed = JSON.parse(result)
+    assert.equal(parsed.startLine, 1)
+    assert.equal(parsed.endLine, 50)
+  })
+
+  it('does not corrupt already valid complex JSON', () => {
+    const input = '{"choices":[{"message":{"tool_calls":[{"function":{"arguments":"{}"}}]}}]}'
+    assert.equal(repairJson(input), input)
+  })
+
+  it('preserves ellipsis (multiple dots)', () => {
+    const input = '{"text":"Loading..."}'
+    assert.equal(repairJson(input), input)
+  })
+})
+
+// ─── repairToolCallArgs ─────────────────────────────────────────────────────────
+describe('repairToolCallArgs', () => {
+  it('repairs tool_call arguments in a non-streaming response', () => {
+    const data = {
+      choices: [{
+        message: {
+          tool_calls: [{
+            function: {
+              name: 'read_file',
+              arguments: '{"filePath":"test.js".'
+            }
+          }]
+        }
+      }]
+    }
+    repairToolCallArgs(data)
+    assert.doesNotThrow(() => JSON.parse(data.choices[0].message.tool_calls[0].function.arguments))
+    assert.equal(JSON.parse(data.choices[0].message.tool_calls[0].function.arguments).filePath, 'test.js')
+  })
+
+  it('handles multiple tool_calls', () => {
+    const data = {
+      choices: [{
+        message: {
+          tool_calls: [
+            { function: { name: 'read_file', arguments: '{"path":"a.js".' } },
+            { function: { name: 'read_file', arguments: '{"path":"b.js"}' } }
+          ]
+        }
+      }]
+    }
+    repairToolCallArgs(data)
+    assert.doesNotThrow(() => JSON.parse(data.choices[0].message.tool_calls[0].function.arguments))
+    assert.doesNotThrow(() => JSON.parse(data.choices[0].message.tool_calls[1].function.arguments))
+  })
+
+  it('passes through data without tool_calls unchanged', () => {
+    const data = { choices: [{ message: { content: 'Hello' } }] }
+    const original = JSON.stringify(data)
+    repairToolCallArgs(data)
+    assert.equal(JSON.stringify(data), original)
+  })
+
+  it('handles null/undefined input gracefully', () => {
+    assert.equal(repairToolCallArgs(null), null)
+    assert.equal(repairToolCallArgs(undefined), undefined)
+    assert.deepEqual(repairToolCallArgs({}), {})
   })
 })
