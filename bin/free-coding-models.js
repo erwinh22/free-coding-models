@@ -1683,6 +1683,8 @@ async function createZaiProxy(apiKey) {
           const argBuffers = {}
           // Track which SSE data lines belong to tool_call delta chunks
           const sseDataLines = []
+          // Track tool_call function names per index (for default args fallback)
+          const tcNames = {}
           for (const line of lines) {
             if (!line.startsWith('data: ')) { sseDataLines.push({ raw: line, parsed: null }); continue }
             const payload = line.slice(6).trim()
@@ -1695,9 +1697,14 @@ async function createZaiProxy(apiKey) {
               if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
                   const idx = tc.index ?? 0
-                  if (tc.function?.arguments) {
+                  // Track function name
+                  if (tc.function?.name) tcNames[idx] = tc.function.name
+                  // Handle arguments — coerce object to string if needed
+                  let args = tc.function?.arguments
+                  if (args !== undefined && args !== null && args !== '') {
+                    if (typeof args !== 'string') args = JSON.stringify(args)
                     if (!argBuffers[idx]) argBuffers[idx] = ''
-                    argBuffers[idx] += tc.function.arguments
+                    argBuffers[idx] += args
                   }
                 }
               }
@@ -1705,55 +1712,59 @@ async function createZaiProxy(apiKey) {
               sseDataLines.push({ raw: line, parsed: null })
             }
           }
-          // If tool_call arguments were accumulated, repair them and inject corrected
-          // final arguments into the last delta chunk for each tool_call index
+
+          // Ensure every tool_call index has at least empty-object arguments
+          // (GLM 5 sometimes sends tool_calls with no arguments at all)
+          for (const [idx, name] of Object.entries(tcNames)) {
+            if (!argBuffers[idx]) argBuffers[idx] = '{}'
+          }
+
+          // If tool_call arguments were accumulated, repair and inject corrected
+          // final arguments into the last delta chunk for each tool_call index.
+          // Always re-inject as a single chunk to avoid client-side reassembly issues.
           if (Object.keys(argBuffers).length > 0) {
             const repairedArgs = {}
-            let anyRepaired = false
             for (const [idx, assembled] of Object.entries(argBuffers)) {
-              const repaired = repairJson(assembled)
-              repairedArgs[idx] = repaired
-              if (repaired !== assembled) anyRepaired = true
+              repairedArgs[idx] = repairJson(assembled)
             }
-            if (anyRepaired) {
-              // Walk backwards to find the last delta chunk per tool_call index
-              // and replace its arguments with the full repaired string
-              const fixedIndices = new Set()
-              for (let i = sseDataLines.length - 1; i >= 0; i--) {
-                const entry = sseDataLines[i]
-                if (!entry.parsed) continue
-                const delta = entry.parsed?.choices?.[0]?.delta
-                if (!delta?.tool_calls) continue
-                for (const tc of delta.tool_calls) {
-                  const idx = tc.index ?? 0
-                  if (fixedIndices.has(idx)) continue
-                  if (repairedArgs[idx] !== undefined && tc.function?.arguments) {
-                    tc.function.arguments = repairedArgs[idx]
-                    fixedIndices.add(idx)
-                  }
+            // Walk backwards to find the last delta chunk per tool_call index
+            // and replace its arguments with the full repaired string
+            const fixedIndices = new Set()
+            for (let i = sseDataLines.length - 1; i >= 0; i--) {
+              const entry = sseDataLines[i]
+              if (!entry.parsed) continue
+              const delta = entry.parsed?.choices?.[0]?.delta
+              if (!delta?.tool_calls) continue
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0
+                if (fixedIndices.has(idx)) continue
+                if (repairedArgs[idx] !== undefined) {
+                  if (!tc.function) tc.function = {}
+                  tc.function.arguments = repairedArgs[idx]
+                  fixedIndices.add(idx)
                 }
-                entry.raw = 'data: ' + JSON.stringify(entry.parsed)
-                if (fixedIndices.size >= Object.keys(repairedArgs).length) break
               }
-              // Clear arguments from earlier delta chunks for repaired indices
-              // so the SDK doesn't double-accumulate
-              for (let i = 0; i < sseDataLines.length; i++) {
-                const entry = sseDataLines[i]
-                if (!entry.parsed) continue
-                const delta = entry.parsed?.choices?.[0]?.delta
-                if (!delta?.tool_calls) continue
-                let changed = false
-                for (const tc of delta.tool_calls) {
-                  const idx = tc.index ?? 0
-                  if (fixedIndices.has(idx) && tc.function?.arguments) {
-                    // Check if this is the line we already fixed (has the full repaired args)
-                    if (tc.function.arguments === repairedArgs[idx]) continue
-                    tc.function.arguments = ''
-                    changed = true
-                  }
+              entry.raw = 'data: ' + JSON.stringify(entry.parsed)
+              if (fixedIndices.size >= Object.keys(repairedArgs).length) break
+            }
+            // Clear arguments from earlier delta chunks for fixed indices
+            // so the SDK doesn't double-accumulate
+            for (let i = 0; i < sseDataLines.length; i++) {
+              const entry = sseDataLines[i]
+              if (!entry.parsed) continue
+              const delta = entry.parsed?.choices?.[0]?.delta
+              if (!delta?.tool_calls) continue
+              let changed = false
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0
+                if (fixedIndices.has(idx) && tc.function?.arguments) {
+                  // Check if this is the line we already fixed (has the full repaired args)
+                  if (tc.function.arguments === repairedArgs[idx]) continue
+                  tc.function.arguments = ''
+                  changed = true
                 }
-                if (changed) entry.raw = 'data: ' + JSON.stringify(entry.parsed)
               }
+              if (changed) entry.raw = 'data: ' + JSON.stringify(entry.parsed)
             }
           }
           // Re-emit all SSE lines

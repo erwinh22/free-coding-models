@@ -1474,6 +1474,21 @@ describe('repairJson', () => {
     const input = '{"text":"Loading..."}'
     assert.equal(repairJson(input), input)
   })
+
+  it('fixes truncated bash tool call (GLM 5 real-world)', () => {
+    // GLM 5 sometimes truncates tool_call JSON before adding all required fields
+    const input = '{"command":"head -50 README.md"'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.equal(JSON.parse(result).command, 'head -50 README.md')
+  })
+
+  it('strips trailing garbage after valid JSON', () => {
+    const input = '{"command":"ls"}extra'
+    const result = repairJson(input)
+    assert.doesNotThrow(() => JSON.parse(result))
+    assert.equal(JSON.parse(result).command, 'ls')
+  })
 })
 
 // ─── repairToolCallArgs ─────────────────────────────────────────────────────────
@@ -1523,5 +1538,53 @@ describe('repairToolCallArgs', () => {
     assert.equal(repairToolCallArgs(null), null)
     assert.equal(repairToolCallArgs(undefined), undefined)
     assert.deepEqual(repairToolCallArgs({}), {})
+  })
+
+  it('defaults missing arguments to empty object', () => {
+    const data = {
+      choices: [{
+        message: {
+          tool_calls: [{
+            function: { name: 'bash' }
+          }]
+        }
+      }]
+    }
+    repairToolCallArgs(data)
+    assert.equal(data.choices[0].message.tool_calls[0].function.arguments, '{}')
+  })
+
+  it('defaults undefined arguments to empty object', () => {
+    const data = {
+      choices: [{
+        message: {
+          tool_calls: [{
+            function: { name: 'bash', arguments: undefined }
+          }]
+        }
+      }]
+    }
+    repairToolCallArgs(data)
+    assert.equal(data.choices[0].message.tool_calls[0].function.arguments, '{}')
+  })
+
+  it('converts object arguments to JSON string', () => {
+    const data = {
+      choices: [{
+        message: {
+          tool_calls: [{
+            function: {
+              name: 'bash',
+              arguments: { command: 'ls', description: 'list files' }
+            }
+          }]
+        }
+      }]
+    }
+    repairToolCallArgs(data)
+    const args = data.choices[0].message.tool_calls[0].function.arguments
+    assert.equal(typeof args, 'string')
+    assert.doesNotThrow(() => JSON.parse(args))
+    assert.equal(JSON.parse(args).command, 'ls')
   })
 })

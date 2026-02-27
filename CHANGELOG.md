@@ -2,6 +2,21 @@
 
 ---
 
+## 0.1.86
+
+### Fixed
+
+- **ZAI proxy: handle missing/empty tool_call arguments** -- GLM 5 sometimes sends tool_calls with no `function.arguments` field, causing "expected string, received undefined" errors in OpenCode. Now defaults to `{}`.
+- **ZAI proxy: coerce object arguments to JSON string** -- If GLM sends arguments as a parsed object instead of a JSON string, the proxy now `JSON.stringify()`s them before forwarding.
+- **ZAI proxy: always re-inject assembled arguments** -- Previously only re-injected when repair changed the content. Now always consolidates multi-delta argument fragments into a single chunk to prevent client-side reassembly issues.
+- **repairJson: strip trailing garbage** -- New repair step handles cases like `{"a":1}extra` by truncating after the last balanced top-level brace.
+
+### Added
+
+- **5 new unit tests** -- truncated bash tool call, trailing garbage stripping, missing arguments default, undefined arguments default, object-to-string coercion (192 total tests across 27 suites).
+
+---
+
 ## 0.1.85
 
 ### Added
